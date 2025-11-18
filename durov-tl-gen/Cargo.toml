@@ -1,0 +1,7 @@
+[package]
+name = "durov-tl-gen"
+edition = "2024"
+
+[dependencies]
+durov-tl-parser = { path = "../durov-tl-parser" }
+convert_case = "0.9"

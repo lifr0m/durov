@@ -1,0 +1,8 @@
+[package]
+name = "durov-mtproto"
+edition = "2024"
+
+[dependencies]
+thiserror = "2"
+tokio = { version = "1", features = ["net", "io-util"] }
+crc-fast = "1"

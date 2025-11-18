@@ -1,0 +1,47 @@
+use crate::write::{Context, Write};
+use crate::writer::Writer;
+use durov_tl_parser::DataType;
+
+impl Write for DataType {
+    fn write(&self, writer: &mut Writer, context: &mut Context) {
+        match self {
+            DataType::Int => writer.raw_write("i32"),
+            DataType::Long => writer.raw_write("i64"),
+            DataType::Double => writer.raw_write("f64"),
+            DataType::String => writer.raw_write("String"),
+            DataType::Bytes => writer.raw_write("Vec::<u8>"),
+            DataType::Vector(typ) => {
+                writer.raw_write("Vec::<");
+                typ.write(writer, context);
+                writer.raw_write(">");
+            }
+            DataType::BareVector(typ) => {
+                writer.raw_write("crate::BareVec::<");
+                typ.write(writer, context);
+                writer.raw_write(">");
+            }
+            DataType::Int128 => writer.raw_write("crypto_bigint::U128"),
+            DataType::Int256 => writer.raw_write("crypto_bigint::U256"),
+            DataType::Defined(name) => {
+                for _ in 0..context.nested {
+                    writer.raw_write("super::");
+                }
+                writer.raw_write(&context.namespaces[name]);
+                writer.raw_write("::");
+                name.write(writer, context);
+            }
+            DataType::Polymorphic { name, .. } => writer.raw_write(name),
+            DataType::Condition => writer.raw_write("i32"),
+            DataType::Conditional { typ, .. } => {
+                writer.raw_write("Option::<");
+                typ.write(writer, context);
+                writer.raw_write(">");
+            }
+            DataType::Boxed(typ) => {
+                writer.raw_write("Box::<");
+                typ.write(writer, context);
+                writer.raw_write(">");
+            }
+        }
+    }
+}

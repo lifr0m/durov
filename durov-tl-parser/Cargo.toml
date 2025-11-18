@@ -1,0 +1,6 @@
+[package]
+name = "durov-tl-parser"
+edition = "2024"
+
+[dependencies]
+crc-fast = "1"

@@ -1,0 +1,11 @@
+[package]
+name = "durov-tl-types"
+edition = "2024"
+
+[dependencies]
+thiserror = "2"
+crypto-bigint = "0.7.0-rc.10"
+
+[build-dependencies]
+durov-tl-parser = { path = "../durov-tl-parser" }
+durov-tl-gen = { path = "../durov-tl-gen" }

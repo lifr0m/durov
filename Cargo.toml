@@ -1,0 +1,8 @@
+[workspace]
+resolver = "3"
+members = [
+    "durov-tl-parser",
+    "durov-tl-gen",
+    "durov-tl-types",
+    "durov-mtproto",
+]
