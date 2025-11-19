@@ -20,8 +20,8 @@ impl Write for DataType {
                 typ.write(writer, context);
                 writer.raw_write(">");
             }
-            DataType::Int128 => writer.raw_write("crypto_bigint::U128"),
-            DataType::Int256 => writer.raw_write("crypto_bigint::U256"),
+            DataType::Int128 => writer.raw_write("crypto_bigint::I128"),
+            DataType::Int256 => writer.raw_write("crypto_bigint::I256"),
             DataType::Defined(name) => {
                 for _ in 0..context.nested {
                     writer.raw_write("super::");

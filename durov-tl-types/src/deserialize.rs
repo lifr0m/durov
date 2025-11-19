@@ -1,7 +1,7 @@
 use crate::cursor::Cursor;
 use crate::utils::calc_pad_len;
 use crate::BareVec;
-use crypto_bigint::{Encoding, U128, U256};
+use crypto_bigint::{Encoding, I128, I256, U128, U256};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -138,19 +138,19 @@ impl<T: Deserialize> Deserialize for BareVec<T> {
     }
 }
 
-impl Deserialize for U128 {
+impl Deserialize for I128 {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let mut val = [0; 16];
         src.read(&mut val)?;
-        Ok(Self::from_le_bytes(val))
+        Ok(*U128::from_le_bytes(val).as_int())
     }
 }
 
-impl Deserialize for U256 {
+impl Deserialize for I256 {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let mut val = [0; 32];
         src.read(&mut val)?;
-        Ok(Self::from_le_bytes(val))
+        Ok(*U256::from_le_bytes(val).as_int())
     }
 }
 
