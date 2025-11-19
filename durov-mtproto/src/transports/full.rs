@@ -1,16 +1,15 @@
 use super::{Error, Transport};
 use crc_fast::{CrcAlgorithm, Digest};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-pub struct Full {
-    stream: net::TcpStream,
+pub struct Full<S> {
+    stream: S,
     send_seq: i32,
     recv_seq: i32,
 }
 
-impl Full {
-    pub fn new(stream: net::TcpStream) -> Self {
+impl<S> Full<S> {
+    pub fn new(stream: S) -> Self {
         Self {
             stream,
             send_seq: 0,
@@ -19,7 +18,7 @@ impl Full {
     }
 }
 
-impl Transport for Full {
+impl<S: AsyncWrite + AsyncRead + Unpin> Transport for Full<S> {
     async fn send(&mut self, payload: &[u8]) -> Result<(), Error> {
         let len = (payload.len() as i32).to_le_bytes();
         let seq = self.send_seq.to_le_bytes();
