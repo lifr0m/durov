@@ -15,6 +15,22 @@ const IGNORED_COMBINATORS: &[&str] = &[
     "int256 8*[ int ] = Int256",
 ];
 
+struct FieldTypeReplacement {
+    combinator_namespace: Option<&'static str>,
+    combinator_name: &'static str,
+    field_name: &'static str,
+    new_type: DataType,
+}
+
+const FIELD_TYPE_REPLACEMENTS: &[FieldTypeReplacement] = &[
+    FieldTypeReplacement {
+        combinator_namespace: None,
+        combinator_name: "resPQ",
+        field_name: "pq",
+        new_type: DataType::Bytes,
+    },
+];
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum CombinatorType {
     Constructor,
@@ -27,7 +43,7 @@ pub struct Name {
     pub name: String,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DataType {
     Int,
     Long,
@@ -109,13 +125,32 @@ pub fn parse_schema(input: &str) -> Schema {
             continue;
         }
 
-        combinators.push(parse_combinator(line, combinator_type));
+        combinators.push(replace_field_types(parse_combinator(line, combinator_type)));
     }
 
     let mut schema = Schema { layer, combinators };
     recursion::fix_recursion(&mut schema);
     check::check_schema(&schema);
     schema
+}
+
+fn replace_field_types(mut combinator: Combinator) -> Combinator {
+    for replacement in FIELD_TYPE_REPLACEMENTS {
+        if combinator.name.namespace.as_deref() != replacement.combinator_namespace {
+            continue;
+        }
+        if combinator.name.name != replacement.combinator_name {
+            continue;
+        }
+        for field in &mut combinator.fields {
+            if field.name != replacement.field_name {
+                continue;
+            }
+            field.typ = replacement.new_type.clone();
+        }
+    }
+
+    combinator
 }
 
 fn parse_combinator(line: &str, typ: CombinatorType) -> Combinator {
