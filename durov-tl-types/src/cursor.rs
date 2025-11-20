@@ -20,6 +20,14 @@ impl<'a> Cursor<'a> {
         Self { data, pos: 0 }
     }
 
+    pub fn consumed(&self) -> usize {
+        self.pos
+    }
+
+    pub fn remaining(&self) -> usize {
+        self.data.len() - self.consumed()
+    }
+
     pub fn read(&mut self, dst: &mut [u8]) -> Result<(), Error> {
         if self.pos + dst.len() > self.data.len() {
             return Err(Error::DataTooShort {

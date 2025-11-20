@@ -32,6 +32,12 @@ where
         let mut cur = Cursor::new(src);
         Self::deserialize(&mut cur)
     }
+
+    fn from_bytes_with_size(src: &[u8]) -> Result<(Self, usize), Error> {
+        let mut cur = Cursor::new(src);
+        let obj = Self::deserialize(&mut cur)?;
+        Ok((obj, cur.consumed()))
+    }
 }
 
 impl Deserialize for i32 {
