@@ -110,9 +110,7 @@ impl Deserialize for Vec<u8> {
 
 impl<T: Deserialize> Deserialize for Vec<T> {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
-        let mut id = [0; 4];
-        src.read(&mut id)?;
-        let id = i32::from_le_bytes(id);
+        let id = i32::deserialize(src)?;
 
         if id != crate::constants::VECTOR_ID {
             return Err(Error::IdMismatch {
@@ -121,9 +119,7 @@ impl<T: Deserialize> Deserialize for Vec<T> {
             });
         }
 
-        let mut len = [0; 4];
-        src.read(&mut len)?;
-        let len = i32::from_le_bytes(len) as usize;
+        let len = i32::deserialize(src)? as usize;
 
         (0..len)
             .map(|_| T::deserialize(src))
@@ -133,9 +129,7 @@ impl<T: Deserialize> Deserialize for Vec<T> {
 
 impl<T: Deserialize> Deserialize for BareVec<T> {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
-        let mut len = [0; 4];
-        src.read(&mut len)?;
-        let len = i32::from_le_bytes(len) as usize;
+        let len = i32::deserialize(src)? as usize;
 
         (0..len)
             .map(|_| T::deserialize(src))
