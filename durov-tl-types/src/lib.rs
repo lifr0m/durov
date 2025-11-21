@@ -1,12 +1,12 @@
-mod serialize;
-mod deserialize;
+pub mod serialize;
+pub mod deserialize;
 mod constants;
 mod cursor;
 mod utils;
 pub mod schemas;
 
-pub use deserialize::Deserialize;
-pub use serialize::Serialize;
+use deserialize::Deserialize;
+use serialize::Serialize;
 
 pub trait Identify {
     const ID: i32;
