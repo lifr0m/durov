@@ -1,6 +1,6 @@
 use super::{Error, Transport};
+use crate::crypto;
 use async_trait::async_trait;
-use crc_fast::{CrcAlgorithm, Digest};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub struct Full<S> {
@@ -25,12 +25,8 @@ impl<S: AsyncWrite + AsyncRead + Unpin + Send> Transport for Full<S> {
         let len = Self::OVERHEAD + payload.len();
         let len = (len as i32).to_le_bytes();
         let seq = self.send_seq.to_le_bytes();
-
-        let mut crc = Digest::new(CrcAlgorithm::Crc32IsoHdlc);
-        crc.update(&len);
-        crc.update(&seq);
-        crc.update(payload);
-        let crc = (crc.finalize() as i32).to_le_bytes();
+        let crc = crypto::crc32([&len, &seq, payload])
+            .to_le_bytes();
 
         self.stream.write_all(&len).await?;
         self.stream.write_all(&seq).await?;
@@ -50,6 +46,7 @@ impl<S: AsyncWrite + AsyncRead + Unpin + Send> Transport for Full<S> {
         let mut payload = vec![0; len as usize - Self::OVERHEAD];
         self.stream.read_exact(&mut payload).await?;
         let crc = self.stream.read_i32_le().await?;
+        let my_crc = crypto::crc32([&len.to_le_bytes(), &seq.to_le_bytes(), &payload]);
 
         if seq != self.recv_seq {
             return Err(Error::SeqMismatch {
@@ -57,13 +54,6 @@ impl<S: AsyncWrite + AsyncRead + Unpin + Send> Transport for Full<S> {
                 received: seq,
             });
         }
-
-        let mut my_crc = Digest::new(CrcAlgorithm::Crc32IsoHdlc);
-        my_crc.update(&len.to_le_bytes());
-        my_crc.update(&seq.to_le_bytes());
-        my_crc.update(&payload);
-        let my_crc = my_crc.finalize() as i32;
-
         if my_crc != crc {
             return Err(Error::CrcMismatch {
                 expected: my_crc,
