@@ -9,7 +9,8 @@ use crate::tl;
 use ciphers::*;
 use crypto_bigint::{BoxedUint, Odd, Random, I128, I256, U2048, U64};
 use crypto_primes::Flavor;
-use durov_tl_types::{Deserialize, Serialize};
+use durov_tl_types::deserialize::Deserialize;
+use durov_tl_types::serialize::Serialize;
 use hashes::*;
 use logic::*;
 use modular::*;
@@ -72,7 +73,7 @@ pub enum Error {
     },
 }
 
-enum Direction {
+pub enum Direction {
     ClientToServer,
     ServerToClient,
 }
@@ -81,14 +82,15 @@ pub fn random_bigint<T: Random>() -> T {
     T::random(&mut rand::rng())
 }
 
+fn serialize_boxed_bigint(n: &BoxedUint) -> Vec<u8> {
+    n.to_be_bytes_trimmed_vartime()
+        .into_vec()
+}
+
 pub fn compute_rsa_pubkey_fingerprint(pubkey: &rsa::RsaPublicKey) -> i64 {
     let pubkey = tl::types::RsaPublicKey {
-        n: pubkey.n()
-            .to_be_bytes_trimmed_vartime()
-            .to_vec(),
-        e: pubkey.e()
-            .to_be_bytes_trimmed_vartime()
-            .to_vec(),
+        n: serialize_boxed_bigint(pubkey.n()),
+        e: serialize_boxed_bigint(pubkey.e()),
     };
     let hash = sha1([&pubkey.to_bytes()]);
     let data = make_arr([&hash[12..]]);
@@ -111,6 +113,11 @@ pub fn ensure_pq_composite(pq: i64) -> Result<(), Error> {
     } else {
         Err(Error::PrimePq(pq))
     }
+}
+
+pub fn serialize_p_q(n: i64) -> Vec<u8> {
+    let n = BoxedUint::from(n as u64);
+    serialize_boxed_bigint(&n)
 }
 
 pub fn factorize_pq(pq: i64) -> (i64, i64) {
@@ -156,17 +163,16 @@ pub fn rsa_pad(data: &[u8], server_pubkey: &rsa::RsaPublicKey) -> Result<Vec<u8>
             &temp_key_xor,
             &aes_encrypted,
         ]);
+        let key_aes_encrypted = BoxedUint::from_be_slice_vartime(&key_aes_encrypted);
 
-        if BoxedUint::from_be_slice_vartime(&key_aes_encrypted) < **server_pubkey.n() {
+        if key_aes_encrypted < **server_pubkey.n() {
             break key_aes_encrypted;
         }
     };
 
-    let encrypted_data = server_pubkey.encrypt(
-        &mut rand::rng(),
-        rsa::Oaep::<sha1::Sha1>::new(),
-        &key_aes_encrypted,
-    )?;
+    let encrypted_data = serialize_boxed_bigint(
+        &rsa::hazmat::rsa_encrypt(server_pubkey, &key_aes_encrypted)?,
+    );
 
     Ok(encrypted_data)
 }
@@ -174,12 +180,12 @@ pub fn rsa_pad(data: &[u8], server_pubkey: &rsa::RsaPublicKey) -> Result<Vec<u8>
 pub fn compute_new_nonce_hash(
     new_nonce: I256,
     byte: &[u8],
-    auth_key_aux_hash: &[u8],
+    auth_key_aux_id: &[u8],
 ) -> [u8; 16] {
     let hash = sha1([
         &new_nonce.as_uint().to_le_bytes(),
         byte,
-        auth_key_aux_hash,
+        auth_key_aux_id,
     ]);
     make_arr([&hash[4..]])
 }
@@ -332,13 +338,13 @@ pub fn encrypt_data(
     server_nonce: I128,
     tmp_aes_key: [u8; 32],
     tmp_aes_iv: [u8; 32],
-    prev_auth_key_aux_hash: Option<i64>,
+    prev_auth_key_aux_id: Option<i64>,
 ) -> Vec<u8> {
     let data = tl::enums::ClientDhInnerData::ClientDhInnerData(
         tl::types::ClientDhInnerData {
             nonce,
             server_nonce,
-            retry_id: prev_auth_key_aux_hash.unwrap_or(0),
+            retry_id: prev_auth_key_aux_id.unwrap_or(0),
             g_b: g_b.to_be_bytes().to_vec(),
         }
     );
@@ -373,17 +379,19 @@ pub fn compute_server_salt(new_nonce: I256, server_nonce: I128) -> [u8; 8] {
     )
 }
 
-fn compute_auth_key_id(auth_key: &[u8]) -> [u8; 8] {
+pub fn compute_auth_key_id(auth_key: &[u8]) -> i64 {
     let hash = sha1([auth_key]);
-    make_arr([&hash[12..]])
+    let data = make_arr([&hash[12..]]);
+    i64::from_le_bytes(data)
 }
 
-pub fn compute_auth_key_aux_hash(auth_key: &[u8]) -> [u8; 8] {
+pub fn compute_auth_key_aux_id(auth_key: &[u8]) -> i64 {
     let hash = sha1([auth_key]);
-    make_arr([&hash[..8]])
+    let data = make_arr([&hash[..8]]);
+    i64::from_le_bytes(data)
 }
 
-fn compute_msg_key(
+pub fn compute_msg_key(
     auth_key: &[u8],
     direction: Direction,
     plaintext: &[u8],
@@ -404,7 +412,7 @@ fn compute_msg_key(
     ])
 }
 
-fn compute_aes_key_iv(
+pub fn compute_aes_key_iv(
     auth_key: &[u8],
     msg_key: &[u8],
     direction: Direction,
@@ -441,9 +449,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_factorize() {
-        assert!([3022102129, 3051972317].contains(&factorize(9223372036854762893).unwrap()));
-        assert!([3007208861, 3067087277].contains(&factorize(9223372036854761497).unwrap()));
-        assert!([3035785783, 3038215703].contains(&factorize(9223372036854750449).unwrap()));
+    fn test_ensure_pq_composite() {
+        ensure_pq_composite(1372318559046200203)
+            .unwrap();
+    }
+
+    #[test]
+    fn test_factorize_pq() {
+        assert_eq!(factorize_pq(1372318559046200203), (1141464581, 1202243663));
     }
 }

@@ -1,7 +1,8 @@
+use crate::connection::DcType;
 use crate::crypto::compute_server_salt;
 use crate::{crypto, tl};
 use crypto_bigint::{I128, I256, U2048};
-use durov_tl_types::Serialize;
+use durov_tl_types::serialize::Serialize;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -40,39 +41,33 @@ pub enum Error {
     RetryStep4,
 }
 
-pub enum DcType {
-    Regular,
-    Test,
-    Media,
-}
-
 pub struct Step1 {
-    req: tl::functions::ReqPqMulti,
-    nonce: I128,
+    pub req: tl::functions::ReqPqMulti,
+    pub nonce: I128,
 }
 
 pub struct Step2 {
-    req: tl::functions::ReqDhParams,
-    server_nonce: I128,
-    new_nonce: I256,
+    pub req: tl::functions::ReqDhParams,
+    pub server_nonce: I128,
+    pub new_nonce: I256,
 }
 
 pub struct Step3 {
-    tmp_aes_key: [u8; 32],
-    tmp_aes_iv: [u8; 32],
-    p: U2048,
-    g: U2048,
-    g_a: U2048,
-    server_time: i32,
+    pub tmp_aes_key: [u8; 32],
+    pub tmp_aes_iv: [u8; 32],
+    pub p: U2048,
+    pub g: U2048,
+    pub g_a: U2048,
+    pub server_time: i32,
 }
 
 pub struct Step4 {
-    req: tl::functions::SetClientDhParams,
-    auth_key: [u8; 256],
+    pub req: tl::functions::SetClientDhParams,
+    pub auth_key: [u8; 256],
 }
 
 pub struct Step5 {
-    server_salt: [u8; 8],
+    pub server_salt: [u8; 8],
 }
 
 pub fn step1() -> Step1 {
@@ -110,13 +105,13 @@ pub fn step2(
     let data = tl::enums::PQInnerData::PQInnerDataDc(
         tl::types::PQInnerDataDc {
             pq: res.pq,
-            p: p.to_be_bytes().to_vec(),
-            q: q.to_be_bytes().to_vec(),
+            p: crypto::serialize_p_q(p),
+            q: crypto::serialize_p_q(q),
             nonce,
             server_nonce: res.server_nonce,
             new_nonce,
             dc: match dc_type {
-                DcType::Regular => dc,
+                DcType::Production => dc,
                 DcType::Test => dc + 10_000,
                 DcType::Media => -dc,
             },
@@ -126,8 +121,8 @@ pub fn step2(
     let req = tl::functions::ReqDhParams {
         nonce,
         server_nonce: res.server_nonce,
-        p: p.to_be_bytes().to_vec(),
-        q: q.to_be_bytes().to_vec(),
+        p: crypto::serialize_p_q(p),
+        q: crypto::serialize_p_q(q),
         public_key_fingerprint: fingerprint,
         encrypted_data: crypto::rsa_pad(&data.to_bytes(), server_pubkey)?,
     };
@@ -146,7 +141,7 @@ pub fn step3(
         tl::enums::ServerDhParams::ServerDhParamsFail(res) => {
             ensure_nonce_equal(nonce, res.nonce)?;
             ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
-            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash, &[], &[])?;
+            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash, 0, 0)?;
 
             return Err(Error::Restart);
         }
@@ -174,7 +169,6 @@ pub fn step3(
 
     crypto::ensure_dh_extra_1(&p, &g)?;
     crypto::ensure_dh_extra_1(&p, &g_a)?;
-
     crypto::ensure_dh_extra_2(&p, &g_a)?;
 
     Ok(Step3 { tmp_aes_key, tmp_aes_iv, p, g, g_a, server_time: answer.server_time })
@@ -189,7 +183,7 @@ pub fn step4(
     p: U2048,
     g: &U2048,
     g_a: &U2048,
-    prev_auth_key_aux_hash: Option<i64>,
+    prev_auth_key_aux_id: Option<i64>,
 ) -> Result<Step4, Error> {
     let b = crypto::random_bigint();
     let g_b = crypto::compute_g_b(p, g, &b);
@@ -206,7 +200,7 @@ pub fn step4(
             server_nonce,
             tmp_aes_key,
             tmp_aes_iv,
-            prev_auth_key_aux_hash,
+            prev_auth_key_aux_id,
         ),
     };
 
@@ -222,21 +216,21 @@ pub fn step5(
     new_nonce: I256,
     auth_key: &[u8],
 ) -> Result<Step5, Error> {
-    let auth_key_aux_hash = crypto::compute_auth_key_aux_hash(auth_key);
+    let auth_key_aux_id = crypto::compute_auth_key_aux_id(auth_key);
 
     let res = match res {
         tl::enums::SetClientDhParamsAnswer::DhGenOk(res) => res,
         tl::enums::SetClientDhParamsAnswer::DhGenRetry(res) => {
             ensure_nonce_equal(nonce, res.nonce)?;
             ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
-            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash2, &[2], &auth_key_aux_hash)?;
+            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash2, 2, auth_key_aux_id)?;
 
             return Err(Error::RetryStep4);
         }
         tl::enums::SetClientDhParamsAnswer::DhGenFail(res) => {
             ensure_nonce_equal(nonce, res.nonce)?;
             ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
-            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash3, &[3], &auth_key_aux_hash)?;
+            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash3, 3, auth_key_aux_id)?;
 
             return Err(Error::RetryStep4);
         }
@@ -244,7 +238,7 @@ pub fn step5(
 
     ensure_nonce_equal(nonce, res.nonce)?;
     ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
-    ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash1, &[1], &auth_key_aux_hash)?;
+    ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash1, 1, auth_key_aux_id)?;
 
     let server_salt = compute_server_salt(new_nonce, res.server_nonce);
 
@@ -276,10 +270,19 @@ fn ensure_server_nonce_equal(nonce: I128, res_nonce: I128) -> Result<(), Error> 
 fn ensure_new_nonce_hash_equal(
     nonce: I256,
     res_hash: I128,
-    byte: &[u8],
-    auth_key_aux_hash: &[u8],
+    byte: u8,
+    auth_key_aux_id: i64,
 ) -> Result<(), Error> {
-    let hash = crypto::compute_new_nonce_hash(nonce, byte, auth_key_aux_hash);
+    let byte: &[u8] = match byte {
+        0 => &[],
+        _ => &[byte],
+    };
+    let auth_key_aux_id: &[u8] = match auth_key_aux_id {
+        0 => &[],
+        _ => &auth_key_aux_id.to_le_bytes(),
+    };
+
+    let hash = crypto::compute_new_nonce_hash(nonce, byte, auth_key_aux_id);
     let res_hash = res_hash.as_uint().to_le_bytes();
 
     if hash == res_hash {

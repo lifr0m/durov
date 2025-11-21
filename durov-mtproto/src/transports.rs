@@ -1,5 +1,6 @@
 pub mod full;
 
+use async_trait::async_trait;
 use thiserror::Error;
 use tokio::io;
 
@@ -19,8 +20,12 @@ pub enum Error {
         expected: i32,
         received: i32,
     },
+
+    #[error("application error code: {0}")]
+    Application(i32),
 }
 
+#[async_trait]
 pub trait Transport {
     async fn send(&mut self, payload: &[u8]) -> Result<(), Error>;
 

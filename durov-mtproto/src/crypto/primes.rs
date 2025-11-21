@@ -88,3 +88,15 @@ fn gcd(mut a: i128, mut b: i128) -> i128 {
 
     b << shift
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_factorize() {
+        assert!([3022102129, 3051972317].contains(&factorize(9223372036854762893).unwrap()));
+        assert!([3007208861, 3067087277].contains(&factorize(9223372036854761497).unwrap()));
+        assert!([3035785783, 3038215703].contains(&factorize(9223372036854750449).unwrap()));
+    }
+}

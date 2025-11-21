@@ -9,5 +9,5 @@ pub fn pow_mod<const LIMBS: usize>(
     let params = MontyParams::new(modulus);
     let monty = MontyForm::new(n, params);
     monty.pow(exp)
-        .to_montgomery()
+        .retrieve()
 }
