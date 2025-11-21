@@ -109,13 +109,32 @@ pub fn parse_schema(input: &str) -> Schema {
             continue;
         }
 
-        combinators.push(parse_combinator(line, combinator_type));
+        combinators.push(apply_polymorphic(parse_combinator(line, combinator_type)));
     }
 
     let mut schema = Schema { layer, combinators };
     recursion::fix_recursion(&mut schema);
     check::check_schema(&schema);
     schema
+}
+
+fn apply_polymorphic(mut combinator: Combinator) -> Combinator {
+    if combinator.fields.iter()
+        .map(|f| &f.typ)
+        .chain([&combinator.data_type])
+        .any(|typ| matches!(typ, DataType::Polymorphic { function: true, .. }))
+    {
+        for typ in combinator.fields.iter_mut()
+            .map(|f| &mut f.typ)
+            .chain([&mut combinator.data_type])
+        {
+            if let DataType::Polymorphic { function, .. } = typ {
+                *function = true;
+            }
+        }
+    }
+
+    combinator
 }
 
 fn parse_combinator(line: &str, typ: CombinatorType) -> Combinator {

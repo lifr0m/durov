@@ -107,10 +107,12 @@ impl Write for Combinator {
 
         if self.typ == CombinatorType::Function {
             writer.indent_write("impl");
-            if poly.as_ref().is_some_and(|p| p.function) {
+            if matches!(self.data_type, DataType::Polymorphic { function: true, .. }) {
                 write_polymorphic(writer, poly.as_ref(), &["crate::Call"]);
-            } else {
+            } else if matches!(self.data_type, DataType::Polymorphic { function: false, .. }) {
                 write_polymorphic(writer, poly.as_ref(), &["crate::Deserialize"]);
+            } else {
+                write_polymorphic(writer, poly.as_ref(), &[]);
             }
             writer.raw_write(" crate::Call for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
@@ -119,7 +121,7 @@ impl Write for Combinator {
             writer.add_indent();
             writer.indent_write("type Result = ");
             self.data_type.write(writer, context);
-            if poly.as_ref().is_some_and(|p| p.function) {
+            if matches!(self.data_type, DataType::Polymorphic { function: true, .. }) {
                 writer.raw_write("::Result");
             }
             writer.raw_write(";\n");
