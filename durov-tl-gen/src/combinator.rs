@@ -58,25 +58,18 @@ const RESERVED_KEYWORDS: &[&str] = &[
     "gen",
 ];
 
-struct Polymorphic {
-    name: String,
-    function: bool,
-}
-
 impl Write for Combinator {
     fn write(&self, writer: &mut Writer, context: &mut Context) {
         let poly = self.fields.iter()
             .find_map(|f| match &f.typ {
-                DataType::Polymorphic { name, function } => {
-                    Some(Polymorphic { name: name.clone(), function: *function })
-                }
+                DataType::Polymorphic { name, .. } => Some(name.clone()),
                 _ => None,
             });
 
         writer.indent_write("#[derive(Debug)]\n");
         writer.indent_write("pub struct ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, poly.as_ref(), &[]);
+        write_polymorphic(writer, &poly, &[]);
         writer.raw_write(" {\n");
         writer.add_indent();
         for field in &self.fields {
@@ -93,10 +86,10 @@ impl Write for Combinator {
         writer.indent_write("}\n\n");
 
         writer.indent_write("impl");
-        write_polymorphic(writer, poly.as_ref(), &[]);
+        write_polymorphic(writer, &poly, &[]);
         writer.raw_write(" crate::Identify for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, poly.as_ref(), &[]);
+        write_polymorphic(writer, &poly, &[]);
         writer.raw_write(" {\n");
         writer.add_indent();
         writer.indent_write("const ID: i32 = ");
@@ -108,15 +101,15 @@ impl Write for Combinator {
         if self.typ == CombinatorType::Function {
             writer.indent_write("impl");
             if matches!(self.data_type, DataType::Polymorphic { function: true, .. }) {
-                write_polymorphic(writer, poly.as_ref(), &["crate::Call"]);
+                write_polymorphic(writer, &poly, &["crate::Call"]);
             } else if matches!(self.data_type, DataType::Polymorphic { function: false, .. }) {
-                write_polymorphic(writer, poly.as_ref(), &["crate::Deserialize"]);
+                write_polymorphic(writer, &poly, &["crate::Deserialize"]);
             } else {
-                write_polymorphic(writer, poly.as_ref(), &[]);
+                write_polymorphic(writer, &poly, &[]);
             }
             writer.raw_write(" crate::Call for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
-            write_polymorphic(writer, poly.as_ref(), &[]);
+            write_polymorphic(writer, &poly, &[]);
             writer.raw_write(" {\n");
             writer.add_indent();
             writer.indent_write("type Result = ");
@@ -130,10 +123,10 @@ impl Write for Combinator {
         }
 
         writer.indent_write("impl");
-        write_polymorphic(writer, poly.as_ref(), &["crate::Serialize"]);
+        write_polymorphic(writer, &poly, &["crate::Serialize"]);
         writer.raw_write(" crate::Serialize for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, poly.as_ref(), &[]);
+        write_polymorphic(writer, &poly, &[]);
         writer.raw_write(" {\n");
         writer.add_indent();
         writer.indent_write("fn serialize(&self, ");
@@ -189,10 +182,10 @@ impl Write for Combinator {
 
         if self.typ == CombinatorType::Constructor {
             writer.indent_write("impl");
-            write_polymorphic(writer, poly.as_ref(), &["crate::Deserialize"]);
+            write_polymorphic(writer, &poly, &["crate::Deserialize"]);
             writer.raw_write(" crate::Deserialize for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
-            write_polymorphic(writer, poly.as_ref(), &[]);
+            write_polymorphic(writer, &poly, &[]);
             writer.raw_write(" {\n");
             writer.add_indent();
             writer.indent_write("fn deserialize(");
@@ -255,10 +248,10 @@ fn collect_conditional_fields(fields: &[Field], depend_on: &str) -> Vec<(String,
         .collect()
 }
 
-fn write_polymorphic(writer: &mut Writer, field: Option<&Polymorphic>, traits: &[&str]) {
-    if let Some(field) = field {
+fn write_polymorphic(writer: &mut Writer, name: &Option<String>, traits: &[&str]) {
+    if let Some(name) = name {
         writer.raw_write("<");
-        writer.raw_write(&field.name);
+        writer.raw_write(name);
         if !traits.is_empty() {
             writer.raw_write(": ");
         }
