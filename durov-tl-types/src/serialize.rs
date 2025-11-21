@@ -78,6 +78,13 @@ impl<T: Serialize> Serialize for Vec<T> {
     }
 }
 
+impl Serialize for crate::BareVec<u8> {
+    fn serialize(&self, dst: &mut impl Extend<u8>) {
+        dst.extend((self.0.len() as i32).to_le_bytes());
+        dst.extend(self.0.iter().copied());
+    }
+}
+
 impl<T: Serialize> Serialize for crate::BareVec<T> {
     fn serialize(&self, dst: &mut impl Extend<u8>) {
         dst.extend((self.0.len() as i32).to_le_bytes());

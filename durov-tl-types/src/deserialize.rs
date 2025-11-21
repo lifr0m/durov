@@ -127,6 +127,16 @@ impl<T: Deserialize> Deserialize for Vec<T> {
     }
 }
 
+impl Deserialize for BareVec<u8> {
+    fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
+        let len = i32::deserialize(src)? as usize;
+
+        let mut val = vec![0; len];
+        src.read(&mut val)?;
+        Ok(BareVec(val))
+    }
+}
+
 impl<T: Deserialize> Deserialize for BareVec<T> {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let len = i32::deserialize(src)? as usize;
