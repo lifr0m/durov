@@ -73,6 +73,7 @@ impl Write for Combinator {
                 _ => None,
             });
 
+        writer.indent_write("#[derive(Debug)]\n");
         writer.indent_write("pub struct ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
         write_polymorphic(writer, poly.as_ref(), &[]);

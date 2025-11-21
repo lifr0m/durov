@@ -16,4 +16,5 @@ pub trait Call {
     type Result: Deserialize;
 }
 
+#[derive(Debug)]
 pub struct BareVec<T>(pub Vec<T>);
