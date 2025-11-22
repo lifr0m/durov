@@ -1,4 +1,5 @@
 use crate::utils::calc_pad_len;
+use crate::BareVec;
 use crypto_bigint::{I128, I256};
 
 pub trait Serialize {
@@ -78,14 +79,14 @@ impl<T: Serialize> Serialize for Vec<T> {
     }
 }
 
-impl Serialize for crate::BareVec<u8> {
+impl Serialize for BareVec<u8> {
     fn serialize(&self, dst: &mut impl Extend<u8>) {
         dst.extend((self.0.len() as i32).to_le_bytes());
         dst.extend(self.0.iter().copied());
     }
 }
 
-impl<T: Serialize> Serialize for crate::BareVec<T> {
+impl<T: Serialize> Serialize for BareVec<T> {
     fn serialize(&self, dst: &mut impl Extend<u8>) {
         dst.extend((self.0.len() as i32).to_le_bytes());
         self.0.iter().for_each(|e| e.serialize(dst));

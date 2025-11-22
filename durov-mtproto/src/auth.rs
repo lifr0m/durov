@@ -1,7 +1,8 @@
 use crate::connection::DcType;
+use crate::crypto;
 use crate::crypto::compute_server_salt;
-use crate::{crypto, tl};
 use crypto_bigint::{I128, I256, U2048};
+use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use thiserror::Error;
 

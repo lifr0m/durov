@@ -18,11 +18,10 @@ pub fn make_arr<const L: usize, const N: usize>(data: [&[u8]; N]) -> [u8; L] {
 }
 
 pub fn make_vec<const N: usize>(data: [&[u8]; N]) -> Vec<u8> {
-    let mut vec = Vec::new();
-    for elem in data {
-        vec.extend(elem);
-    }
-    vec
+    data.into_iter()
+        .flatten()
+        .copied()
+        .collect()
 }
 
 pub fn calc_pad_len(len: usize, step: usize) -> usize {

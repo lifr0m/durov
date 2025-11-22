@@ -4,7 +4,7 @@ pub fn debug_bytes<const N: usize>(comment: &str, data: [&[u8]; N]) {
     if !log::log_enabled!(log::Level::Debug) {
         return;
     }
-    let mut string = String::from(comment);
+    let mut string = comment.to_string();
     for (idx, &byte) in data.into_iter()
         .flatten()
         .enumerate()
