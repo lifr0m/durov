@@ -39,10 +39,9 @@ pub enum DataType {
     Int128,
     Int256,
     Defined(Name),
-    Polymorphic {
-        name: String,
-        function: bool,
-    },
+    Polymorphic(String),
+    PolymorphicFunction(String),
+    PolymorphicFunctionResult(String),
     Condition,
     Conditional {
         field: String,
@@ -65,6 +64,20 @@ pub struct Combinator {
     pub id: i32,
     pub data_type: DataType,
     pub fields: Vec<Field>,
+}
+
+impl Combinator {
+    pub fn iter_data_types(&self) -> impl Iterator<Item = &DataType> {
+        self.fields.iter()
+            .map(|f| &f.typ)
+            .chain([&self.data_type])
+    }
+
+    pub fn iter_data_types_mut(&mut self) -> impl Iterator<Item = &mut DataType> {
+        self.fields.iter_mut()
+            .map(|f| &mut f.typ)
+            .chain([&mut self.data_type])
+    }
 }
 
 #[derive(Debug)]
@@ -109,7 +122,7 @@ pub fn parse_schema(input: &str) -> Schema {
             continue;
         }
 
-        combinators.push(apply_polymorphic(parse_combinator(line, combinator_type)));
+        combinators.push(replace_polymorphic(parse_combinator(line, combinator_type)));
     }
 
     let mut schema = Schema { layer, combinators };
@@ -118,18 +131,13 @@ pub fn parse_schema(input: &str) -> Schema {
     schema
 }
 
-fn apply_polymorphic(mut combinator: Combinator) -> Combinator {
-    if combinator.fields.iter()
-        .map(|f| &f.typ)
-        .chain([&combinator.data_type])
-        .any(|typ| matches!(typ, DataType::Polymorphic { function: true, .. }))
+fn replace_polymorphic(mut combinator: Combinator) -> Combinator {
+    if combinator.iter_data_types()
+        .any(|typ| matches!(typ, DataType::PolymorphicFunction(_)))
     {
-        for typ in combinator.fields.iter_mut()
-            .map(|f| &mut f.typ)
-            .chain([&mut combinator.data_type])
-        {
-            if let DataType::Polymorphic { function, .. } = typ {
-                *function = true;
+        for typ in combinator.iter_data_types_mut() {
+            if let DataType::Polymorphic(name) = typ {
+                *typ = DataType::PolymorphicFunctionResult(name.clone());
             }
         }
     }
@@ -196,11 +204,6 @@ fn parse_poly_type(line: &str) -> (&str, Option<&str>) {
 }
 
 fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
-    let (line, function) = match line.strip_prefix("!") {
-        Some(line) => (line, true),
-        None => (line, false),
-    };
-
     match line {
         "int" => DataType::Int,
         "long" => DataType::Long,
@@ -210,10 +213,12 @@ fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
         "int128" => DataType::Int128,
         "int256" => DataType::Int256,
         "#" => DataType::Condition,
-        _ if Some(line) == poly_type => DataType::Polymorphic {
-            name: line.to_owned(),
-            function,
-        },
+        _ if Some(line) == poly_type => DataType::Polymorphic(line.to_string()),
+        _ if line.starts_with("!") => DataType::PolymorphicFunction(
+            line.strip_prefix("!")
+                .unwrap()
+                .to_string(),
+        ),
         _ if line.starts_with("Vector<") => DataType::Vector(Box::new(parse_data_type(
             line.strip_prefix("Vector<")
                 .unwrap()
@@ -234,7 +239,7 @@ fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
 
             let (field, bit) = condition.split_once(".")
                 .unwrap();
-            let field = field.to_owned();
+            let field = field.to_string();
             let bit = bit.parse()
                 .unwrap();
 
@@ -250,7 +255,7 @@ fn parse_field(line: &str, poly_type: Option<&str>) -> Field {
     let (name, line) = line.split_once(":")
         .unwrap();
 
-    let name = name.to_owned();
+    let name = name.to_string();
     let typ = parse_data_type(line, poly_type);
 
     Field { name, typ }
@@ -259,12 +264,12 @@ fn parse_field(line: &str, poly_type: Option<&str>) -> Field {
 fn parse_name(line: &str) -> Name {
     match line.split_once(".") {
         Some((namespace, name)) => Name {
-            namespace: Some(namespace.to_owned()),
-            name: name.to_owned(),
+            namespace: Some(namespace.to_string()),
+            name: name.to_string(),
         },
         None => Name {
             namespace: None,
-            name: line.to_owned(),
+            name: line.to_string(),
         },
     }
 }

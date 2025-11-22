@@ -30,7 +30,12 @@ impl Write for DataType {
                 writer.raw_write("::");
                 name.write(writer, context);
             }
-            DataType::Polymorphic { name, .. } => writer.raw_write(name),
+            DataType::Polymorphic(name) => writer.raw_write(name),
+            DataType::PolymorphicFunction(name) => writer.raw_write(name),
+            DataType::PolymorphicFunctionResult(name) => {
+                writer.raw_write(name);
+                writer.raw_write("::Result");
+            }
             DataType::Condition => writer.raw_write("i32"),
             DataType::Conditional { typ, .. } => {
                 writer.raw_write("Option::<");

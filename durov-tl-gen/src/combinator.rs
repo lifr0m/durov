@@ -58,18 +58,30 @@ const RESERVED_KEYWORDS: &[&str] = &[
     "gen",
 ];
 
+struct Polymorphic {
+    name: String,
+    function: bool,
+}
+
 impl Write for Combinator {
     fn write(&self, writer: &mut Writer, context: &mut Context) {
-        let poly = self.fields.iter()
-            .find_map(|f| match &f.typ {
-                DataType::Polymorphic { name, .. } => Some(name.clone()),
+        let poly = self.iter_data_types()
+            .find_map(|typ| match typ {
+                DataType::Polymorphic(name) => Some(Polymorphic {
+                    name: name.clone(),
+                    function: false,
+                }),
+                DataType::PolymorphicFunction(name) => Some(Polymorphic {
+                    name: name.clone(),
+                    function: true,
+                }),
                 _ => None,
             });
 
         writer.indent_write("#[derive(Debug)]\n");
         writer.indent_write("pub struct ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, &poly, &[]);
+        write_polymorphic(writer, &poly, true, &[]);
         writer.raw_write(" {\n");
         writer.add_indent();
         for field in &self.fields {
@@ -86,10 +98,10 @@ impl Write for Combinator {
         writer.indent_write("}\n\n");
 
         writer.indent_write("impl");
-        write_polymorphic(writer, &poly, &[]);
+        write_polymorphic(writer, &poly, true, &[]);
         writer.raw_write(" crate::Identify for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, &poly, &[]);
+        write_polymorphic(writer, &poly, false, &[]);
         writer.raw_write(" {\n");
         writer.add_indent();
         writer.indent_write("const ID: i32 = ");
@@ -100,33 +112,24 @@ impl Write for Combinator {
 
         if self.typ == CombinatorType::Function {
             writer.indent_write("impl");
-            if matches!(self.data_type, DataType::Polymorphic { function: true, .. }) {
-                write_polymorphic(writer, &poly, &["crate::Call"]);
-            } else if matches!(self.data_type, DataType::Polymorphic { function: false, .. }) {
-                write_polymorphic(writer, &poly, &["crate::Deserialize"]);
-            } else {
-                write_polymorphic(writer, &poly, &[]);
-            }
+            write_polymorphic(writer, &poly, true, &[]);
             writer.raw_write(" crate::Call for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
-            write_polymorphic(writer, &poly, &[]);
+            write_polymorphic(writer, &poly, false, &[]);
             writer.raw_write(" {\n");
             writer.add_indent();
             writer.indent_write("type Result = ");
             self.data_type.write(writer, context);
-            if matches!(self.data_type, DataType::Polymorphic { function: true, .. }) {
-                writer.raw_write("::Result");
-            }
             writer.raw_write(";\n");
             writer.subtract_indent();
             writer.indent_write("}\n\n");
         }
 
         writer.indent_write("impl");
-        write_polymorphic(writer, &poly, &["crate::Serialize"]);
+        write_polymorphic(writer, &poly, true, &["crate::Serialize"]);
         writer.raw_write(" crate::Serialize for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, &poly, &[]);
+        write_polymorphic(writer, &poly, false, &[]);
         writer.raw_write(" {\n");
         writer.add_indent();
         writer.indent_write("fn serialize(&self, ");
@@ -182,10 +185,10 @@ impl Write for Combinator {
 
         if self.typ == CombinatorType::Constructor {
             writer.indent_write("impl");
-            write_polymorphic(writer, &poly, &["crate::Deserialize"]);
+            write_polymorphic(writer, &poly, true, &["crate::Deserialize"]);
             writer.raw_write(" crate::Deserialize for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
-            write_polymorphic(writer, &poly, &[]);
+            write_polymorphic(writer, &poly, false, &[]);
             writer.raw_write(" {\n");
             writer.add_indent();
             writer.indent_write("fn deserialize(");
@@ -237,6 +240,31 @@ impl Write for Combinator {
     }
 }
 
+fn write_polymorphic(writer: &mut Writer, poly: &Option<Polymorphic>, start: bool, traits: &[&str]) {
+    if let Some(poly) = poly {
+        writer.raw_write("<");
+        writer.raw_write(&poly.name);
+        if start {
+            if poly.function || !traits.is_empty() {
+                writer.raw_write(": ");
+            }
+            if poly.function {
+                writer.raw_write("crate::Call");
+                if !traits.is_empty() {
+                    writer.raw_write(" + ");
+                }
+            }
+            for (idx, t) in traits.iter().enumerate() {
+                writer.raw_write(t);
+                if idx + 1 < traits.len() {
+                    writer.raw_write(" + ");
+                }
+            }
+        }
+        writer.raw_write(">");
+    }
+}
+
 fn collect_conditional_fields(fields: &[Field], depend_on: &str) -> Vec<(String, u8)> {
     fields.iter()
         .filter_map(|f| match &f.typ {
@@ -248,27 +276,10 @@ fn collect_conditional_fields(fields: &[Field], depend_on: &str) -> Vec<(String,
         .collect()
 }
 
-fn write_polymorphic(writer: &mut Writer, name: &Option<String>, traits: &[&str]) {
-    if let Some(name) = name {
-        writer.raw_write("<");
-        writer.raw_write(name);
-        if !traits.is_empty() {
-            writer.raw_write(": ");
-        }
-        for (idx, t) in traits.iter().enumerate() {
-            writer.raw_write(t);
-            if idx + 1 < traits.len() {
-                writer.raw_write(" + ");
-            }
-        }
-        writer.raw_write(">");
-    }
-}
-
 fn no_reserved_keyword(name: &str) -> String {
     if RESERVED_KEYWORDS.contains(&name) {
         format!("{name}_")
     } else {
-        name.to_owned()
+        name.to_string()
     }
 }
