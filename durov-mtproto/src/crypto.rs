@@ -5,16 +5,16 @@ mod ciphers;
 mod primes;
 mod modular;
 
-use crate::tl;
 pub use ciphers::*;
 use crypto_bigint::{BoxedUint, Odd, Random, I128, I256, U2048, U64};
 use crypto_primes::Flavor;
 use durov_tl_types::deserialize::Deserialize;
+use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 pub use hashes::*;
 pub use logic::*;
 pub use modular::*;
-pub use primes::*;
+use primes::*;
 use rsa::traits::PublicKeyParts;
 use thiserror::Error;
 pub use utils::*;
