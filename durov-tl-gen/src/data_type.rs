@@ -22,14 +22,7 @@ impl Write for DataType {
             }
             DataType::Int128 => writer.raw_write("crypto_bigint::I128"),
             DataType::Int256 => writer.raw_write("crypto_bigint::I256"),
-            DataType::Defined(name) => {
-                for _ in 0..context.nested {
-                    writer.raw_write("super::");
-                }
-                writer.raw_write(&context.namespaces[name]);
-                writer.raw_write("::");
-                name.write(writer, context);
-            }
+            DataType::Defined(name) => name.write(writer, context),
             DataType::Polymorphic(name) => writer.raw_write(name),
             DataType::PolymorphicFunction(name) => writer.raw_write(name),
             DataType::PolymorphicFunctionResult(name) => {

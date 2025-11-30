@@ -78,7 +78,7 @@ impl Write for Combinator {
                 _ => None,
             });
 
-        writer.indent_write("#[derive(Debug)]\n");
+        writer.indent_write("#[derive(Debug, Clone)]\n");
         writer.indent_write("pub struct ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
         write_polymorphic(writer, &poly, true, &[]);
@@ -136,7 +136,7 @@ impl Write for Combinator {
         if self.typ == CombinatorType::Constructor && self.fields.is_empty() {
             writer.raw_write("_");
         }
-        writer.raw_write("dst: &mut impl Extend<u8>) {\n");
+        writer.raw_write("dst: &mut crate::buffer::Buffer) {\n");
         writer.add_indent();
         if self.typ == CombinatorType::Function {
             writer.indent_write("<Self as crate::Identify>::ID.serialize(dst);\n");

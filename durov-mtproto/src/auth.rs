@@ -1,6 +1,5 @@
-use crate::connection::DcType;
 use crate::crypto;
-use crate::crypto::compute_server_salt;
+use crate::datacenter::{Datacenter, DatacenterType};
 use crypto_bigint::{I128, I256, U2048};
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
@@ -39,7 +38,9 @@ pub enum Error {
     Restart,
 
     #[error("retry starting from step 4")]
-    RetryStep4,
+    RetryStep4 {
+        auth_key_aux_id: i64,
+    },
 }
 
 pub struct Step1 {
@@ -68,7 +69,7 @@ pub struct Step4 {
 }
 
 pub struct Step5 {
-    pub server_salt: [u8; 8],
+    pub server_salt: i64,
 }
 
 pub fn step1() -> Step1 {
@@ -77,18 +78,12 @@ pub fn step1() -> Step1 {
     Step1 { req, nonce }
 }
 
-pub fn step2(
-    res: tl::enums::ResPq,
-    nonce: I128,
-    dc: i32,
-    dc_type: DcType,
-    server_pubkey: &rsa::RsaPublicKey,
-) -> Result<Step2, Error> {
+pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step2, Error> {
     let tl::enums::ResPq::ResPq(res) = res;
 
     ensure_nonce_equal(nonce, res.nonce)?;
 
-    let fingerprint = crypto::compute_rsa_pubkey_fingerprint(server_pubkey);
+    let fingerprint = crypto::compute_rsa_pubkey_fingerprint(&dc.pubkey);
 
     if !res.server_public_key_fingerprints.contains(&fingerprint) {
         return Err(Error::RsaPubkeyFingerprintMismatch {
@@ -111,10 +106,10 @@ pub fn step2(
             nonce,
             server_nonce: res.server_nonce,
             new_nonce,
-            dc: match dc_type {
-                DcType::Production => dc,
-                DcType::Test => dc + 10_000,
-                DcType::Media => -dc,
+            dc: match dc.typ {
+                DatacenterType::Production => dc.id,
+                DatacenterType::Test => dc.id + 10_000,
+                DatacenterType::Media => -dc.id,
             },
         }
     );
@@ -125,7 +120,7 @@ pub fn step2(
         p: crypto::serialize_p_q(p),
         q: crypto::serialize_p_q(q),
         public_key_fingerprint: fingerprint,
-        encrypted_data: crypto::rsa_pad(&data.to_bytes(), server_pubkey)?,
+        encrypted_data: crypto::rsa_pad(&data.to_bytes(), &dc.pubkey)?,
     };
 
     Ok(Step2 { req, server_nonce: res.server_nonce, new_nonce })
@@ -226,14 +221,14 @@ pub fn step5(
             ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
             ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash2, 2, auth_key_aux_id)?;
 
-            return Err(Error::RetryStep4);
+            return Err(Error::RetryStep4 { auth_key_aux_id });
         }
         tl::enums::SetClientDhParamsAnswer::DhGenFail(res) => {
             ensure_nonce_equal(nonce, res.nonce)?;
             ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
             ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash3, 3, auth_key_aux_id)?;
 
-            return Err(Error::RetryStep4);
+            return Err(Error::RetryStep4 { auth_key_aux_id });
         }
     };
 
@@ -241,7 +236,7 @@ pub fn step5(
     ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
     ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash1, 1, auth_key_aux_id)?;
 
-    let server_salt = compute_server_salt(new_nonce, res.server_nonce);
+    let server_salt = crypto::compute_server_salt(new_nonce, res.server_nonce);
 
     Ok(Step5 { server_salt })
 }

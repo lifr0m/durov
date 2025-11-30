@@ -1,3 +1,5 @@
+use durov_tl_types::buffer::Buffer;
+
 pub fn sub_str(data: &[u8], index: usize, len: usize) -> &[u8] {
     &data[index..index + len]
 }
@@ -17,11 +19,12 @@ pub fn make_arr<const L: usize, const N: usize>(data: [&[u8]; N]) -> [u8; L] {
     arr
 }
 
-pub fn make_vec<const N: usize>(data: [&[u8]; N]) -> Vec<u8> {
-    data.into_iter()
-        .flatten()
-        .copied()
-        .collect()
+pub fn make_buf<const N: usize>(data: [&[u8]; N]) -> Buffer {
+    let mut buf = Buffer::new();
+    for elem in data {
+        buf.extend_back(elem);
+    }
+    buf
 }
 
 pub fn calc_pad_len(len: usize, step: usize) -> usize {

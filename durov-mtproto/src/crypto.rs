@@ -8,6 +8,7 @@ mod modular;
 pub use ciphers::*;
 use crypto_bigint::{BoxedUint, Odd, Random, I128, I256, U2048, U64};
 use crypto_primes::Flavor;
+use durov_tl_types::buffer::Buffer;
 use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
@@ -350,21 +351,23 @@ pub fn encrypt_data(
     );
     let data = data.to_bytes();
 
-    let payload_len = 20 + data.len();
-    let pad_len = calc_pad_len(payload_len, 16);
-    let mut padding = vec![0; pad_len];
-    rand::fill(&mut padding);
-
-    let data_with_hash = make_vec([
+    let mut data_with_hash = make_buf([
         &sha1([&data]),
         &data,
-        &padding,
     ]);
+    let pad_len = calc_pad_len(data_with_hash.len(), 16);
+    extend_random(&mut data_with_hash, pad_len);
 
     let mut encrypted_data = data_with_hash;
     aes256_ige_encrypt(&mut encrypted_data, tmp_aes_key, tmp_aes_iv);
 
-    encrypted_data
+    encrypted_data.to_vec()
+}
+
+pub fn extend_random(buf: &mut Buffer, len: usize) {
+    let start = buf.len();
+    buf.resize_back(len);
+    rand::fill(&mut buf[start..]);
 }
 
 pub fn compute_auth_key(p: U2048, g_a: &U2048, b: &U2048) -> [u8; 256] {
@@ -372,11 +375,12 @@ pub fn compute_auth_key(p: U2048, g_a: &U2048, b: &U2048) -> [u8; 256] {
         .to_be_bytes()
 }
 
-pub fn compute_server_salt(new_nonce: I256, server_nonce: I128) -> [u8; 8] {
-    xor_new(
+pub fn compute_server_salt(new_nonce: I256, server_nonce: I128) -> i64 {
+    let data = xor_new(
         sub_str(&new_nonce.as_uint().to_le_bytes(), 0, 8),
         sub_str(&server_nonce.as_uint().to_le_bytes(), 0, 8),
-    )
+    );
+    i64::from_le_bytes(data)
 }
 
 pub fn compute_auth_key_id(auth_key: &[u8]) -> i64 {
@@ -394,8 +398,7 @@ pub fn compute_auth_key_aux_id(auth_key: &[u8]) -> i64 {
 pub fn compute_msg_key(
     auth_key: &[u8],
     direction: Direction,
-    plaintext: &[u8],
-    random_padding: &[u8],
+    plaintext_with_padding: &[u8],
 ) -> [u8; 16] {
     let x = match direction {
         Direction::ClientToServer => 0,
@@ -404,8 +407,7 @@ pub fn compute_msg_key(
 
     let msg_key_large = sha256([
         sub_str(auth_key, 88 + x, 32),
-        plaintext,
-        random_padding,
+        plaintext_with_padding,
     ]);
     make_arr([
         sub_str(&msg_key_large, 8, 16),
@@ -450,8 +452,8 @@ mod tests {
 
     #[test]
     fn test_ensure_pq_composite() {
-        ensure_pq_composite(1372318559046200203)
-            .unwrap();
+        ensure_pq_composite(1372318559046200203).unwrap();
+        ensure_pq_composite(1141464581).unwrap_err();
     }
 
     #[test]

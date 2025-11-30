@@ -1,52 +1,78 @@
-use super::{Error, Transport};
 use crate::crypto;
-use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use crate::log::debug_bytes;
+use crate::transports::{Error, Transport};
+use durov_tl_types::buffer::Buffer;
 
-pub struct Full<S> {
-    stream: S,
+pub struct Full {
     send_seq: i32,
     recv_seq: i32,
 }
 
-impl<S> Full<S> {
-    pub fn new(stream: S) -> Self {
+impl Default for Full {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Full {
+    pub fn new() -> Self {
         Self {
-            stream,
             send_seq: 0,
             recv_seq: 0,
         }
     }
 }
 
-#[async_trait]
-impl<S: AsyncWrite + AsyncRead + Unpin + Send> Transport for Full<S> {
-    async fn send(&mut self, payload: &[u8]) -> Result<(), Error> {
-        let len = Self::OVERHEAD + payload.len();
+impl Full {
+    const START: usize = 4 + 4;
+    const END: usize = 4;
+    const FULL: usize = Self::START + Self::END;
+}
+
+impl Transport for Full {
+    fn pack(&mut self, buf: &mut Buffer) {
+        let len = Self::FULL + buf.len();
         let len = (len as i32).to_le_bytes();
         let seq = self.send_seq.to_le_bytes();
-        let crc = crypto::crc32([&len, &seq, payload])
+        let crc = crypto::crc32([&len, &seq, buf])
             .to_le_bytes();
 
-        self.stream.write_all(&len).await?;
-        self.stream.write_all(&seq).await?;
-        self.stream.write_all(payload).await?;
-        self.stream.write_all(&crc).await?;
+        buf.extend_front(&seq);
+        buf.extend_front(&len);
+        buf.extend_back(&crc);
+
+        debug_bytes("transport [full] (pack)", buf);
 
         self.send_seq += 1;
-        Ok(())
     }
 
-    async fn receive(&mut self) -> Result<Vec<u8>, Error> {
-        let len = self.stream.read_i32_le().await?;
+    fn unpack(&mut self, buf: &mut Buffer) -> Result<(), Error> {
+        debug_bytes("transport [full] (unpack)", buf);
+
+        if buf.len() < 4 {
+            return Err(Error::MissingBytes(4 - buf.len()));
+        }
+
+        let len = i32::from_le_bytes(buf.array(0));
+
         if len < 0 {
             return Err(Error::Application(-len));
         }
-        let seq = self.stream.read_i32_le().await?;
-        let mut payload = vec![0; len as usize - Self::OVERHEAD];
-        self.stream.read_exact(&mut payload).await?;
-        let crc = self.stream.read_i32_le().await?;
-        let my_crc = crypto::crc32([&len.to_le_bytes(), &seq.to_le_bytes(), &payload]);
+
+        let len = len as usize;
+
+        if len < Self::FULL {
+            return Err(Error::LengthTooSmall {
+                expected: Self::FULL,
+                received: len,
+            });
+        }
+
+        if buf.len() < len {
+            return Err(Error::MissingBytes(len - buf.len()));
+        }
+
+        let seq = i32::from_le_bytes(buf.array(4));
 
         if seq != self.recv_seq {
             return Err(Error::SeqMismatch {
@@ -54,18 +80,23 @@ impl<S: AsyncWrite + AsyncRead + Unpin + Send> Transport for Full<S> {
                 received: seq,
             });
         }
-        if my_crc != crc {
+
+        let crc = i32::from_le_bytes(buf.array(len - 4));
+
+        let calc_crc = crypto::crc32([
+            &buf[..len - 4],
+        ]);
+        if calc_crc != crc {
             return Err(Error::CrcMismatch {
-                expected: my_crc,
+                expected: calc_crc,
                 received: crc,
             });
         }
 
-        self.recv_seq += 1;
-        Ok(payload)
-    }
-}
+        buf.truncate_front(Self::START);
+        buf.truncate_back(Self::END);
 
-impl<S> Full<S> {
-    const OVERHEAD: usize = 4 + 4 + 4;
+        self.recv_seq += 1;
+        Ok(())
+    }
 }

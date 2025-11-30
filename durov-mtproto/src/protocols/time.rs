@@ -1,14 +1,14 @@
-pub const MSG_ID_HISTORY_SIZE: usize = 100;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn get_now(diff: f64) -> f64 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs_f64();
     now - diff
 }
 
-pub fn get_msg_id(diff: f64) -> i64 {
+pub(super) fn get_msg_id(diff: f64) -> i64 {
     let now = get_now(diff);
     let msg_id = now * 2_f64.powi(32);
     let msg_id = msg_id as i64;

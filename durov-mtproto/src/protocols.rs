@@ -1,35 +1,54 @@
 pub mod plain;
 pub mod encrypted;
-mod msg_id;
+pub mod time;
+mod constants;
+mod checkers;
+mod serialize;
 
+use durov_tl_types::deserialize;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("data is too short: {received} bytes, expected at least {expected} bytes")]
-    DataTooShort {
-        expected: usize,
-        received: usize,
-    },
+    #[error("missing bytes")]
+    MissingBytes,
 
-    #[error("wrong auth key id: {received}, expected {expected}")]
-    WrongAuthKeyId {
+    #[error("deserialize: {0}")]
+    Deserialize(#[from] deserialize::Error),
+
+    #[error("auth key id mismatch: expected {expected}, received {received}")]
+    AuthKeyIdMismatch {
         expected: i64,
         received: i64,
     },
 
-    #[error("ignore this message")]
-    IgnoreThisMessage,
+    #[error("msg key mismatch: expected {expected:?}, received {received:?}")]
+    MsgKeyMismatch {
+        expected: [u8; 16],
+        received: [u8; 16],
+    },
 
-    #[error("wrong message length: {received} bytes, expected {expected} bytes")]
-    WrongMessageLength {
+    #[error("session id mismatch: expected {expected}, received {received}")]
+    SessionIdMismatch {
+        expected: i64,
+        received: i64,
+    },
+
+    #[error("invalid length: {0}")]
+    InvalidLength(i32),
+
+    #[error("length too big: expected at most {expected}, received {received}")]
+    LengthTooBig {
         expected: usize,
         received: usize,
     },
-}
 
-pub trait Protocol {
-    fn pack(&mut self, message: &[u8]) -> Result<Vec<u8>, Error>;
+    #[error("invalid padding length: {0}")]
+    InvalidPaddingLength(usize),
 
-    fn unpack(&mut self, data: &[u8]) -> Result<Vec<u8>, Error>;
+    #[error("received invalid msg id: {0}")]
+    InvalidMsgId(i64),
+
+    #[error("ignore this message")]
+    IgnoreThisMessage,
 }

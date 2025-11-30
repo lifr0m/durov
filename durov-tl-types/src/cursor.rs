@@ -2,8 +2,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("data is too short: data len {data_len}, pos {pos}, requested len {requested_len}")]
-    DataTooShort {
+    #[error("missing bytes: data len {data_len}, pos {pos}, requested len {requested_len}")]
+    MissingBytes {
         data_len: usize,
         pos: usize,
         requested_len: usize,
@@ -17,20 +17,27 @@ pub struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0 }
+        Self {
+            data,
+            pos: 0,
+        }
     }
 
-    pub fn consumed(&self) -> usize {
+    pub fn tell(&self) -> usize {
         self.pos
     }
 
-    pub fn remaining(&self) -> usize {
-        self.data.len() - self.consumed()
+    pub fn seek(&mut self, offset: isize) {
+        if offset < 0 {
+            self.pos -= -offset as usize;
+        } else {
+            self.pos += offset as usize;
+        }
     }
 
     pub fn read(&mut self, dst: &mut [u8]) -> Result<(), Error> {
         if self.pos + dst.len() > self.data.len() {
-            return Err(Error::DataTooShort {
+            return Err(Error::MissingBytes {
                 data_len: self.data.len(),
                 pos: self.pos,
                 requested_len: dst.len(),
@@ -49,7 +56,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read() {
+    fn it_works() {
         let data = vec![42, 50];
         let mut cur = Cursor::new(&data);
 
@@ -57,11 +64,14 @@ mod tests {
         cur.read(&mut dst)
             .unwrap();
         assert_eq!(dst, [42]);
+        assert_eq!(cur.tell(), 1);
 
-        let mut dst = [0; 1];
+        cur.seek(-1);
+
+        let mut dst = [0; 2];
         cur.read(&mut dst)
             .unwrap();
-        assert_eq!(dst, [50]);
+        assert_eq!(dst, [42, 50]);
 
         let mut dst = [0; 1];
         cur.read(&mut dst)

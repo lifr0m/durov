@@ -5,6 +5,7 @@ edition = "2024"
 [dependencies]
 thiserror = "2"
 crypto-bigint = "0.7.0-rc.10"
+phf = { version = "0.13", features = ["macros"] }
 
 [build-dependencies]
 durov-tl-parser = { path = "../durov-tl-parser" }

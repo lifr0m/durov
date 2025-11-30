@@ -2,6 +2,7 @@ use crate::cursor::Cursor;
 use crate::utils::calc_pad_len;
 use crate::BareVec;
 use crypto_bigint::{Encoding, I128, I256, U128, U256};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -18,14 +19,14 @@ pub enum Error {
         received: i32,
     },
 
-    #[error("unknown id: {0}")]
+    #[error("unknown id: {0:x}")]
     UnknownId(i32),
+
+    #[error("gzip decode: {0}")]
+    GzipDecode(std::io::Error),
 }
 
-pub trait Deserialize
-where
-    Self: Sized,
-{
+pub trait Deserialize: Sized {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error>;
 
     fn from_bytes(src: &[u8]) -> Result<Self, Error> {
@@ -36,7 +37,7 @@ where
     fn from_bytes_with_size(src: &[u8]) -> Result<(Self, usize), Error> {
         let mut cur = Cursor::new(src);
         let obj = Self::deserialize(&mut cur)?;
-        Ok((obj, cur.consumed()))
+        Ok((obj, cur.tell()))
     }
 }
 
@@ -68,6 +69,14 @@ impl Deserialize for String {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let data = Vec::<u8>::deserialize(src)?;
         Ok(String::from_utf8(data)?)
+    }
+}
+
+impl<const N: usize> Deserialize for [u8; N] {
+    fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
+        let mut val = [0; N];
+        src.read(&mut val)?;
+        Ok(val)
     }
 }
 
@@ -127,16 +136,6 @@ impl<T: Deserialize> Deserialize for Vec<T> {
     }
 }
 
-impl Deserialize for BareVec<u8> {
-    fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
-        let len = i32::deserialize(src)? as usize;
-
-        let mut val = vec![0; len];
-        src.read(&mut val)?;
-        Ok(BareVec(val))
-    }
-}
-
 impl<T: Deserialize> Deserialize for BareVec<T> {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let len = i32::deserialize(src)? as usize;
@@ -168,6 +167,13 @@ impl<T: Deserialize> Deserialize for Box<T> {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let val = T::deserialize(src)?;
         Ok(Box::new(val))
+    }
+}
+
+impl<T: Deserialize> Deserialize for Arc<T> {
+    fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
+        let val = T::deserialize(src)?;
+        Ok(Arc::new(val))
     }
 }
 
