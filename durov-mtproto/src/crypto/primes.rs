@@ -1,6 +1,6 @@
 use std::cmp::min;
 
-pub(super) fn factorize(n: i128) -> Option<i128> {
+pub fn factorize(n: i128) -> Option<i128> {
     for c in [3, 17, 113, 317] {
         let x_0 = rand::random::<i128>() % n;
         if let Some(g) = factorize_n(n, x_0, c) {

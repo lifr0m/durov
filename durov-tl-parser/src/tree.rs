@@ -6,7 +6,10 @@ pub struct Node<T> {
 
 impl<T> Node<T> {
     pub fn new(data: T) -> Self {
-        Self { data, children: Vec::new() }
+        Self {
+            data,
+            children: Vec::new(),
+        }
     }
 
     pub fn data(&self) -> &T {

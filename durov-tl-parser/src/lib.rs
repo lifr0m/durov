@@ -286,6 +286,6 @@ mod tests {
 
     #[test]
     fn test_calc_combinator_id() {
-        assert_eq!(calc_combinator_id("vector {t:Type} # [ t ] = Vector t"), 0x1cb5c415);
+        assert_eq!(calc_combinator_id("vector {t:Type} # [ t ] = Vector t"), 0x1cb5c415_u32 as i32);
     }
 }
