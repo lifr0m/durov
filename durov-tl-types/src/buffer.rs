@@ -1,6 +1,10 @@
-use std::ops::{Deref, DerefMut};
 #[cfg(feature = "fast-buf")]
-use std::{alloc, ptr};
+mod array;
+
+#[cfg(feature = "fast-buf")]
+use array::Array;
+use std::mem;
+use std::ops::{Deref, DerefMut};
 
 /// Capacity on first alloc.
 const DEFAULT_CAPACITY: usize = 256;
@@ -32,21 +36,12 @@ const CAPACITY_DIVIDER: usize = 2;
 pub struct Buffer {
     #[cfg(not(feature = "fast-buf"))]
     data: Vec<u8>,
-
     #[cfg(feature = "fast-buf")]
-    ptr: *mut u8,
-    #[cfg(feature = "fast-buf")]
-    cap: usize,
+    data: Array,
 
     head: usize,
     tail: usize,
 }
-
-#[cfg(feature = "fast-buf")]
-unsafe impl Send for Buffer {}
-
-#[cfg(feature = "fast-buf")]
-unsafe impl Sync for Buffer {}
 
 impl Default for Buffer {
     fn default() -> Self {
@@ -60,11 +55,8 @@ impl Buffer {
         Self {
             #[cfg(not(feature = "fast-buf"))]
             data: Vec::new(),
-
             #[cfg(feature = "fast-buf")]
-            ptr: ptr::dangling_mut(),
-            #[cfg(feature = "fast-buf")]
-            cap: 0,
+            data: Array::new(),
 
             head: 0,
             tail: 0,
@@ -103,13 +95,7 @@ impl Buffer {
     /// Add byte to back.
     pub fn push_back(&mut self, byte: u8) {
         self.reserve_back(1);
-
-        #[cfg(not(feature = "fast-buf"))]
-        { self.data[self.tail] = byte; }
-
-        #[cfg(feature = "fast-buf")]
-        unsafe { *self.ptr.add(self.tail) = byte; }
-
+        self.data[self.tail] = byte;
         self.tail += 1;
     }
 
@@ -117,24 +103,13 @@ impl Buffer {
     pub fn push_front(&mut self, byte: u8) {
         self.reserve_front(1);
         self.head -= 1;
-
-        #[cfg(not(feature = "fast-buf"))]
-        { self.data[self.head] = byte; }
-
-        #[cfg(feature = "fast-buf")]
-        unsafe { *self.ptr.add(self.head) = byte; }
+        self.data[self.head] = byte;
     }
 
     /// Extend back by `other`.
     pub fn extend_back(&mut self, other: &[u8]) {
         self.reserve_back(other.len());
-
-        #[cfg(not(feature = "fast-buf"))]
-        { self.data[self.tail..self.tail + other.len()].copy_from_slice(other); }
-
-        #[cfg(feature = "fast-buf")]
-        unsafe { ptr::copy_nonoverlapping(other.as_ptr(), self.ptr.add(self.tail), other.len()); }
-
+        self.data[self.tail..self.tail + other.len()].copy_from_slice(other);
         self.tail += other.len();
     }
 
@@ -142,12 +117,7 @@ impl Buffer {
     pub fn extend_front(&mut self, other: &[u8]) {
         self.reserve_front(other.len());
         self.head -= other.len();
-
-        #[cfg(not(feature = "fast-buf"))]
-        { self.data[self.head..self.head + other.len()].copy_from_slice(other); }
-
-        #[cfg(feature = "fast-buf")]
-        unsafe { ptr::copy_nonoverlapping(other.as_ptr(), self.ptr.add(self.head), other.len()); }
+        self.data[self.head..self.head + other.len()].copy_from_slice(other);
     }
 
     /// Remove `len` bytes from back.
@@ -184,7 +154,7 @@ impl Buffer {
 
     /// Determine whether we need realloc/reposition to add `len` bytes to back.
     fn need_realloc_back(&self, len: usize) -> bool {
-        // tail + len > cap
+        // tail + len > capacity
         self.tail + len > self.capacity()
     }
 
@@ -196,7 +166,6 @@ impl Buffer {
     fn realloc(&mut self, add_len: usize) {
         let old_cap = self.capacity();
         let old_head = self.head;
-        #[cfg(not(feature = "fast-buf"))]
         let old_tail = self.tail;
         let len = self.len();
 
@@ -214,62 +183,21 @@ impl Buffer {
         self.tail = self.head + len;
 
         if new_cap == old_cap && required_len <= new_cap / CAPACITY_DIVIDER {
-            #[cfg(not(feature = "fast-buf"))]
-            { self.data.copy_within(old_head..old_tail, self.head); }
-
-            #[cfg(feature = "fast-buf")]
-            unsafe { ptr::copy(self.ptr.add(old_head), self.ptr.add(self.head), len); }
+            self.data.copy_within(old_head..old_tail, self.head);
         } else {
             #[cfg(not(feature = "fast-buf"))]
-            {
-                let mut data = vec![0; new_cap];
-                std::mem::swap(&mut self.data, &mut data);
-                self.copy_from_slice(&data[old_head..old_tail]);
-            }
-
+            let new_data = vec![0; new_cap];
             #[cfg(feature = "fast-buf")]
-            unsafe {
-                let old_ptr = self.ptr;
-                let old_cap = self.cap;
+            let new_data = Array::alloc(new_cap);
 
-                let layout = alloc::Layout::array::<u8>(new_cap)
-                    .unwrap();
-                self.ptr = alloc::alloc(layout);
-                self.cap = new_cap;
-
-                if self.ptr.is_null() {
-                    alloc::handle_alloc_error(layout);
-                }
-
-                ptr::copy_nonoverlapping(old_ptr.add(old_head), self.ptr.add(self.head), len);
-
-                if old_cap > 0 {
-                    let old_layout = alloc::Layout::array::<u8>(old_cap)
-                        .unwrap();
-                    alloc::dealloc(old_ptr, old_layout);
-                }
-            }
+            let old_data = mem::replace(&mut self.data, new_data);
+            self.copy_from_slice(&old_data[old_head..old_tail]);
         }
     }
 
     /// Max space that can be used without realloc or reposition.
     fn capacity(&self) -> usize {
-        #[cfg(not(feature = "fast-buf"))]
-        { self.data.len() }
-
-        #[cfg(feature = "fast-buf")]
-        { self.cap }
-    }
-}
-
-#[cfg(feature = "fast-buf")]
-impl Drop for Buffer {
-    fn drop(&mut self) {
-        if self.cap > 0 {
-            let layout = alloc::Layout::array::<u8>(self.cap)
-                .unwrap();
-            unsafe { alloc::dealloc(self.ptr, layout) };
-        }
+        self.data.len()
     }
 }
 
@@ -277,21 +205,13 @@ impl Deref for Buffer {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        #[cfg(not(feature = "fast-buf"))]
-        { &self.data[self.head..self.tail] }
-
-        #[cfg(feature = "fast-buf")]
-        unsafe { std::slice::from_raw_parts(self.ptr.add(self.head), self.tail - self.head) }
+        &self.data[self.head..self.tail]
     }
 }
 
 impl DerefMut for Buffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        #[cfg(not(feature = "fast-buf"))]
-        { &mut self.data[self.head..self.tail] }
-
-        #[cfg(feature = "fast-buf")]
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.add(self.head), self.tail - self.head) }
+        &mut self.data[self.head..self.tail]
     }
 }
 
