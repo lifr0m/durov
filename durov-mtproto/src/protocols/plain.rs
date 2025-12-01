@@ -38,7 +38,7 @@ impl Plain {
     pub fn pack<T: Serialize>(&mut self, buf: &mut Buffer, object: T) {
         0_i64.serialize(buf);
         get_msg_id(self.time_diff).serialize(buf);
-        serialize_len_first(buf, object);
+        serialize_len_first(buf, |buf| object.serialize(buf));
         debug_bytes("protocol [plain] (pack)", buf);
     }
 

@@ -20,7 +20,7 @@ pub struct PlainClient<T> {
 
 impl<T: Transport> PlainClient<T> {
     pub async fn connect(config: Config) -> io::Result<Self> {
-        let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
+        let stream = tcp::connect(config.dc.host, config.dc.port).await?;
         let transport = T::default();
         let protocol = Plain::new();
         Ok(Self { config, stream, transport, protocol })
@@ -65,7 +65,7 @@ where
         let step1 = auth::step1();
         let res = self.call(&step1.req).await?;
 
-        let step2 = auth::step2(res, step1.nonce, &self.config.dc)?;
+        let step2 = auth::step2(res, step1.nonce, &self.config.dc, &self.config.pubkey)?;
         let res = self.call(&step2.req).await?;
 
         let step3 = auth::step3(res, step1.nonce, step2.server_nonce, step2.new_nonce)?;
@@ -94,7 +94,12 @@ where
     }
 
     fn upgrade(self, auth_key: [u8; 256], salt: i64) -> EncryptedClient {
-        let protocol = Encrypted::from_plain(self.protocol, auth_key, salt);
+        let protocol = Encrypted::from_plain(
+            self.protocol,
+            auth_key,
+            salt,
+            self.config.use_gzip,
+        );
         EncryptedClient::new(self.stream, self.transport, protocol)
     }
 }

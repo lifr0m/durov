@@ -13,7 +13,8 @@ use durov_tl_types::cursor::Cursor;
 use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{deserialize, multiple_deserialize_object, Object};
-use flate2::bufread::GzDecoder;
+use flate2::bufread::{GzDecoder, GzEncoder};
+use flate2::Compression;
 use object::{InObject, OutObject};
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -31,10 +32,11 @@ pub struct Encrypted {
     salt: i64,
     session_id: i64,
     msg_seq: i32,
+    use_gzip: bool,
 }
 
 impl Encrypted {
-    pub fn new(auth_key: [u8; 256]) -> Self {
+    pub fn new(auth_key: [u8; 256], use_gzip: bool) -> Self {
         Self {
             time_diff: 0.0,
             msg_id_history: BTreeSet::new(),
@@ -43,10 +45,11 @@ impl Encrypted {
             salt: 0,
             session_id: rand::random(),
             msg_seq: 0,
+            use_gzip,
         }
     }
 
-    pub fn from_plain(protocol: Plain, auth_key: [u8; 256], salt: i64) -> Self {
+    pub fn from_plain(protocol: Plain, auth_key: [u8; 256], salt: i64, use_gzip: bool) -> Self {
         Self {
             time_diff: protocol.time_diff,
             msg_id_history: protocol.msg_id_history,
@@ -55,6 +58,7 @@ impl Encrypted {
             salt,
             session_id: rand::random(),
             msg_seq: 0,
+            use_gzip,
         }
     }
 
@@ -143,8 +147,26 @@ impl Encrypted {
     fn pack_object(&mut self, buf: &mut Buffer, object: &InObject) -> i64 {
         let msg_id = get_msg_id(self.time_diff);
         msg_id.serialize(buf);
-        self.next_msg_seq(is_content(object.id)).serialize(buf);
-        serialize_len_first(buf, &object.body);
+
+        let content = is_content(object.id);
+        self.next_msg_seq(content).serialize(buf);
+
+        if self.use_gzip && content {
+            serialize_len_first(buf, |buf| {
+                GZIP_PACKED_ID.serialize(buf);
+                let mut data = Buffer::new();
+                object.body.serialize(&mut data);
+                let level = Compression::default();
+                let mut encoder = GzEncoder::new(&*data, level);
+                let mut packed_data = Vec::new();
+                encoder.read_to_end(&mut packed_data)
+                    .unwrap();
+                packed_data.serialize(buf);
+            });
+        } else {
+            serialize_len_first(buf, |buf| object.body.serialize(buf));
+        }
+
         msg_id
     }
 

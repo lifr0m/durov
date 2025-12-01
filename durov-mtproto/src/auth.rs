@@ -78,12 +78,17 @@ pub fn step1() -> Step1 {
     Step1 { req, nonce }
 }
 
-pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step2, Error> {
+pub fn step2(
+    res: tl::enums::ResPq,
+    nonce: I128,
+    dc: &Datacenter,
+    pubkey: &rsa::RsaPublicKey,
+) -> Result<Step2, Error> {
     let tl::enums::ResPq::ResPq(res) = res;
 
     ensure_nonce_equal(nonce, res.nonce)?;
 
-    let fingerprint = crypto::compute_rsa_pubkey_fingerprint(&dc.pubkey);
+    let fingerprint = crypto::compute_rsa_pubkey_fingerprint(pubkey);
 
     if !res.server_public_key_fingerprints.contains(&fingerprint) {
         return Err(Error::RsaPubkeyFingerprintMismatch {
@@ -120,7 +125,7 @@ pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step
         p: crypto::serialize_p_q(p),
         q: crypto::serialize_p_q(q),
         public_key_fingerprint: fingerprint,
-        encrypted_data: crypto::rsa_pad(&data.to_bytes(), &dc.pubkey)?,
+        encrypted_data: crypto::rsa_pad(&data.to_bytes(), pubkey)?,
     };
 
     Ok(Step2 { req, server_nonce: res.server_nonce, new_nonce })

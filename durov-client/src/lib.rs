@@ -41,4 +41,6 @@ pub enum Error {
 
 pub struct Config {
     pub dc: Datacenter,
+    pub pubkey: rsa::RsaPublicKey,
+    pub use_gzip: bool,
 }
