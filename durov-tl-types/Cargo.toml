@@ -10,3 +10,6 @@ phf = { version = "0.13", features = ["macros"] }
 [build-dependencies]
 durov-tl-parser = { path = "../durov-tl-parser" }
 durov-tl-gen = { path = "../durov-tl-gen" }
+
+[features]
+fast-buf = []

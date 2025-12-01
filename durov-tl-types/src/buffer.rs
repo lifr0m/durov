@@ -1,4 +1,6 @@
 use std::ops::{Deref, DerefMut};
+#[cfg(feature = "fast-buf")]
+use std::{alloc, ptr};
 
 /// Capacity on first alloc.
 const DEFAULT_CAPACITY: usize = 256;
@@ -28,10 +30,23 @@ const CAPACITY_DIVIDER: usize = 2;
 /// In such cases data can be too small to make new allocation so it's
 /// just moved back to the center of vector without actually reallocating.
 pub struct Buffer {
+    #[cfg(not(feature = "fast-buf"))]
     data: Vec<u8>,
+
+    #[cfg(feature = "fast-buf")]
+    ptr: *mut u8,
+    #[cfg(feature = "fast-buf")]
+    cap: usize,
+
     head: usize,
     tail: usize,
 }
+
+#[cfg(feature = "fast-buf")]
+unsafe impl Send for Buffer {}
+
+#[cfg(feature = "fast-buf")]
+unsafe impl Sync for Buffer {}
 
 impl Default for Buffer {
     fn default() -> Self {
@@ -43,7 +58,14 @@ impl Buffer {
     /// Create empty buffer.
     pub fn new() -> Self {
         Self {
+            #[cfg(not(feature = "fast-buf"))]
             data: Vec::new(),
+
+            #[cfg(feature = "fast-buf")]
+            ptr: ptr::dangling_mut(),
+            #[cfg(feature = "fast-buf")]
+            cap: 0,
+
             head: 0,
             tail: 0,
         }
@@ -55,13 +77,17 @@ impl Buffer {
         self.tail = self.head;
     }
 
-    /// Extend buffer by `add_len` zeroed bytes at back.
+    /// Extend buffer by `add_len` bytes at back.
+    ///
+    /// Extended part is not guaranteed to be zeroed.
     pub fn resize_back(&mut self, add_len: usize) {
         self.reserve_back(add_len);
         self.tail += add_len;
     }
 
-    /// Extend buffer by `add_len` zeroed bytes at front.
+    /// Extend buffer by `add_len` bytes at front.
+    ///
+    /// Extended part is not guaranteed to be zeroed.
     pub fn resize_front(&mut self, add_len: usize) {
         self.reserve_front(add_len);
         self.head -= add_len;
@@ -77,7 +103,13 @@ impl Buffer {
     /// Add byte to back.
     pub fn push_back(&mut self, byte: u8) {
         self.reserve_back(1);
-        self.data[self.tail] = byte;
+
+        #[cfg(not(feature = "fast-buf"))]
+        { self.data[self.tail] = byte; }
+
+        #[cfg(feature = "fast-buf")]
+        unsafe { *self.ptr.add(self.tail) = byte; }
+
         self.tail += 1;
     }
 
@@ -85,13 +117,24 @@ impl Buffer {
     pub fn push_front(&mut self, byte: u8) {
         self.reserve_front(1);
         self.head -= 1;
-        self.data[self.head] = byte;
+
+        #[cfg(not(feature = "fast-buf"))]
+        { self.data[self.head] = byte; }
+
+        #[cfg(feature = "fast-buf")]
+        unsafe { *self.ptr.add(self.head) = byte; }
     }
 
     /// Extend back by `other`.
     pub fn extend_back(&mut self, other: &[u8]) {
         self.reserve_back(other.len());
-        self.data[self.tail..self.tail + other.len()].copy_from_slice(other);
+
+        #[cfg(not(feature = "fast-buf"))]
+        { self.data[self.tail..self.tail + other.len()].copy_from_slice(other); }
+
+        #[cfg(feature = "fast-buf")]
+        unsafe { ptr::copy_nonoverlapping(other.as_ptr(), self.ptr.add(self.tail), other.len()); }
+
         self.tail += other.len();
     }
 
@@ -99,7 +142,12 @@ impl Buffer {
     pub fn extend_front(&mut self, other: &[u8]) {
         self.reserve_front(other.len());
         self.head -= other.len();
-        self.data[self.head..self.head + other.len()].copy_from_slice(other);
+
+        #[cfg(not(feature = "fast-buf"))]
+        { self.data[self.head..self.head + other.len()].copy_from_slice(other); }
+
+        #[cfg(feature = "fast-buf")]
+        unsafe { ptr::copy_nonoverlapping(other.as_ptr(), self.ptr.add(self.head), other.len()); }
     }
 
     /// Remove `len` bytes from back.
@@ -112,40 +160,6 @@ impl Buffer {
     pub fn truncate_front(&mut self, len: usize) {
         assert!(self.len() >= len);
         self.head += len;
-    }
-
-    /// Remove and return `N` bytes from back as array.
-    pub fn drain_back<const N: usize>(&mut self) -> [u8; N] {
-        assert!(self.len() >= N);
-        let mut arr = [0; N];
-        arr.copy_from_slice(&self.data[self.tail - N..self.tail]);
-        self.tail -= N;
-        arr
-    }
-
-    /// Remove and return `N` bytes from front as array.
-    pub fn drain_front<const N: usize>(&mut self) -> [u8; N] {
-        assert!(self.len() >= N);
-        let mut arr = [0; N];
-        arr.copy_from_slice(&self.data[self.head..self.head + N]);
-        self.head += N;
-        arr
-    }
-
-    /// Remove and return `N` bytes from back as vector.
-    pub fn drain_back_vec(&mut self, len: usize) -> Vec<u8> {
-        assert!(self.len() >= len);
-        let vec = self.data[self.tail - len..self.tail].to_vec();
-        self.tail -= len;
-        vec
-    }
-
-    /// Remove and return `N` bytes from front as vector.
-    pub fn drain_front_vec(&mut self, len: usize) -> Vec<u8> {
-        assert!(self.len() >= len);
-        let vec = self.data[self.head..self.head + len].to_vec();
-        self.head += len;
-        vec
     }
 
     /// Ensure there are enough space for adding `len` bytes to back.
@@ -170,7 +184,7 @@ impl Buffer {
 
     /// Determine whether we need realloc/reposition to add `len` bytes to back.
     fn need_realloc_back(&self, len: usize) -> bool {
-        // tail + len > capacity
+        // tail + len > cap
         self.tail + len > self.capacity()
     }
 
@@ -180,36 +194,82 @@ impl Buffer {
     /// It's ensured that new capacity will be enough to add
     /// `add_len` bytes to back or front.
     fn realloc(&mut self, add_len: usize) {
-        let old_capacity = self.capacity();
+        let old_cap = self.capacity();
         let old_head = self.head;
+        #[cfg(not(feature = "fast-buf"))]
         let old_tail = self.tail;
         let len = self.len();
 
         let required_len = add_len + len + add_len;
 
-        let mut new_capacity = match old_capacity {
+        let mut new_cap = match old_cap {
             0 => DEFAULT_CAPACITY,
-            _ => old_capacity,
+            _ => old_cap,
         };
-        while new_capacity < required_len {
-            new_capacity *= CAPACITY_FACTOR;
+        while new_cap < required_len {
+            new_cap *= CAPACITY_FACTOR;
         }
 
-        self.head = new_capacity / 2 - len / 2;
+        self.head = new_cap / 2 - len / 2;
         self.tail = self.head + len;
 
-        if new_capacity == old_capacity && required_len <= new_capacity / CAPACITY_DIVIDER {
-            self.data.copy_within(old_head..old_tail, self.head);
+        if new_cap == old_cap && required_len <= new_cap / CAPACITY_DIVIDER {
+            #[cfg(not(feature = "fast-buf"))]
+            { self.data.copy_within(old_head..old_tail, self.head); }
+
+            #[cfg(feature = "fast-buf")]
+            unsafe { ptr::copy(self.ptr.add(old_head), self.ptr.add(self.head), len); }
         } else {
-            let mut data = vec![0; new_capacity];
-            std::mem::swap(&mut self.data, &mut data);
-            self.copy_from_slice(&data[old_head..old_tail]);
+            #[cfg(not(feature = "fast-buf"))]
+            {
+                let mut data = vec![0; new_cap];
+                std::mem::swap(&mut self.data, &mut data);
+                self.copy_from_slice(&data[old_head..old_tail]);
+            }
+
+            #[cfg(feature = "fast-buf")]
+            unsafe {
+                let old_ptr = self.ptr;
+                let old_cap = self.cap;
+
+                let layout = alloc::Layout::array::<u8>(new_cap)
+                    .unwrap();
+                self.ptr = alloc::alloc(layout);
+                self.cap = new_cap;
+
+                if self.ptr.is_null() {
+                    alloc::handle_alloc_error(layout);
+                }
+
+                ptr::copy_nonoverlapping(old_ptr.add(old_head), self.ptr.add(self.head), len);
+
+                if old_cap > 0 {
+                    let old_layout = alloc::Layout::array::<u8>(old_cap)
+                        .unwrap();
+                    alloc::dealloc(old_ptr, old_layout);
+                }
+            }
         }
     }
 
     /// Max space that can be used without realloc or reposition.
     fn capacity(&self) -> usize {
-        self.data.len()
+        #[cfg(not(feature = "fast-buf"))]
+        { self.data.len() }
+
+        #[cfg(feature = "fast-buf")]
+        { self.cap }
+    }
+}
+
+#[cfg(feature = "fast-buf")]
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        if self.cap > 0 {
+            let layout = alloc::Layout::array::<u8>(self.cap)
+                .unwrap();
+            unsafe { alloc::dealloc(self.ptr, layout) };
+        }
     }
 }
 
@@ -217,13 +277,21 @@ impl Deref for Buffer {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.data[self.head..self.tail]
+        #[cfg(not(feature = "fast-buf"))]
+        { &self.data[self.head..self.tail] }
+
+        #[cfg(feature = "fast-buf")]
+        unsafe { std::slice::from_raw_parts(self.ptr.add(self.head), self.tail - self.head) }
     }
 }
 
 impl DerefMut for Buffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data[self.head..self.tail]
+        #[cfg(not(feature = "fast-buf"))]
+        { &mut self.data[self.head..self.tail] }
+
+        #[cfg(feature = "fast-buf")]
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.add(self.head), self.tail - self.head) }
     }
 }
 
@@ -250,7 +318,7 @@ mod tests {
         let mut buf = Buffer::new();
         buf.resize_back(3);
         buf.resize_front(4);
-        assert_eq!(buf[..], [0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(buf.len(), 7);
     }
 
     #[test]
@@ -283,24 +351,6 @@ mod tests {
         buf.truncate_back(1);
         buf.truncate_front(2);
         assert_eq!(buf[..], [7, 9]);
-    }
-
-    #[test]
-    fn test_drain() {
-        let mut buf = Buffer::new();
-        buf.extend_back(&[4, 3, 7, 9, 8, 4]);
-        assert_eq!(buf.drain_back(), [8, 4]);
-        assert_eq!(buf.drain_front(), [4, 3, 7]);
-        assert_eq!(buf[..], [9]);
-    }
-
-    #[test]
-    fn test_drain_vec() {
-        let mut buf = Buffer::new();
-        buf.extend_back(&[4, 3, 7, 9, 8, 4]);
-        assert_eq!(buf.drain_back_vec(2), [8, 4]);
-        assert_eq!(buf.drain_front_vec(3), [4, 3, 7]);
-        assert_eq!(buf[..], [9]);
     }
 
     #[test]
