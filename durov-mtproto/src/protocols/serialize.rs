@@ -17,7 +17,8 @@ mod tests {
     fn test_serialize_len_first() {
         let object = durov_tl_types::schemas::api::functions::help::GetConfig {};
         let mut buf = Buffer::new();
+        buf.extend_back(&[1, 2]);
         serialize_len_first(&mut buf, object);
-        assert_eq!(buf[..], [4, 0, 0, 0, 0x6b, 0x18, 0xf9, 0xc4]);
+        assert_eq!(buf[..], [1, 2, 4, 0, 0, 0, 0x6b, 0x18, 0xf9, 0xc4]);
     }
 }

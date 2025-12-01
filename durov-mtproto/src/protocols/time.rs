@@ -1,16 +1,15 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub fn get_now(diff: f64) -> f64 {
-    let now = SystemTime::now()
+pub fn get_now() -> f64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs_f64();
-    now - diff
+        .as_secs_f64()
 }
 
 pub(super) fn get_msg_id(diff: f64) -> i64 {
-    let now = get_now(diff);
-    let msg_id = now * 2_f64.powi(32);
+    let server_now = get_now() - diff;
+    let msg_id = server_now * 2_f64.powi(32);
     let msg_id = msg_id as i64;
     msg_id - msg_id % 4
 }

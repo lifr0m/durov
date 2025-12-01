@@ -57,9 +57,11 @@ fn ensure_time_sync(diff: f64, msg_id: i64, id: Option<i32>) -> Result<(), Error
         return Ok(());
     }
 
-    let now = get_now(diff);
-    let server_now = parse_msg_id(msg_id);
-    if server_now - now > 30.0 || now - server_now > 300.0 {
+    let expected_now = get_now() - diff;
+    let received_now = parse_msg_id(msg_id);
+    let gap = received_now - expected_now;
+
+    if !(-300.0..30.0).contains(&gap) {
         return Err(Error::IgnoreThisMessage);
     }
 

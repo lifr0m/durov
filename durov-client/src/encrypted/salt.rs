@@ -35,7 +35,7 @@ impl FutureSalts {
         } else {
             self.asked + 30.0
         };
-        let duration = deadline - get_now(0.0);
+        let duration = deadline - get_now();
         let duration = if duration < 0.0 { 0.0 } else { duration };
         let duration = Duration::from_secs_f64(duration);
         tokio::time::sleep(duration).await

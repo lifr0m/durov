@@ -127,12 +127,12 @@ impl<T: Transport> Worker<T> {
     }
 
     fn on_call(&mut self, call: CallData) -> Result<(), Error> {
-        let objects = if self.ack.condition() {
-            vec![call.body, self.new_ack_object()]
+        let msg_ids = if self.ack.condition() {
+            let ack = self.new_ack_object();
+            self.enqueue_objects(&[call.body, ack])
         } else {
-            vec![call.body]
+            self.enqueue_objects(&[call.body])
         };
-        let msg_ids = self.enqueue_objects(&objects);
         self.call_map.insert(msg_ids[0], call.tx);
 
         Ok(())
@@ -155,7 +155,7 @@ impl<T: Transport> Worker<T> {
             };
             let object = InObject::new(object);
             self.enqueue_objects(&[object]);
-            self.salts.asked = get_now(0.0);
+            self.salts.asked = get_now();
         }
 
         Ok(())
@@ -235,7 +235,7 @@ impl<T: Transport> Worker<T> {
                 let tl::enums::FutureSalts::FutureSalts(future) = *future;
 
                 for salt in future.salts.0 {
-                    let now = get_now(0.0);
+                    let now = get_now();
                     let server_now = future.now as f64;
                     let diff = now - server_now;
 
