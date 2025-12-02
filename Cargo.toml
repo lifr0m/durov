@@ -5,5 +5,5 @@ members = [
     "durov-tl-gen",
     "durov-tl-types",
     "durov-mtproto",
-    "durov-client",
+    "durov-mtclient",
 ]
