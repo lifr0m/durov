@@ -1,8 +1,8 @@
-use crc_fast::{checksum, CrcAlgorithm};
-
 mod check;
 mod recursion;
 mod tree;
+
+use crc_fast::{checksum, CrcAlgorithm};
 
 const IGNORED_COMBINATORS: &[&str] = &[
     "int ? = Int",
@@ -13,6 +13,8 @@ const IGNORED_COMBINATORS: &[&str] = &[
     "vector#1cb5c415 {t:Type} # [ t ] = Vector t",
     "int128 4*[ int ] = Int128",
     "int256 8*[ int ] = Int256",
+    "boolFalse#bc799737 = Bool",
+    "boolTrue#997275b5 = Bool",
 ];
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -34,6 +36,7 @@ pub enum DataType {
     Double,
     String,
     Bytes,
+    Bool,
     Vector(Box<DataType>),
     BareVector(Box<DataType>),
     Int128,
@@ -208,6 +211,7 @@ fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
         "int" => DataType::Int,
         "long" => DataType::Long,
         "double" => DataType::Double,
+        "Bool" => DataType::Bool,
         "string" => DataType::String,
         "bytes" => DataType::Bytes,
         "int128" => DataType::Int128,

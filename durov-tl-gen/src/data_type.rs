@@ -10,6 +10,7 @@ impl Write for DataType {
             DataType::Double => writer.raw_write("f64"),
             DataType::String => writer.raw_write("String"),
             DataType::Bytes => writer.raw_write("Vec::<u8>"),
+            DataType::Bool => writer.raw_write("bool"),
             DataType::Vector(typ) => {
                 writer.raw_write("Vec::<");
                 typ.write(writer, context);

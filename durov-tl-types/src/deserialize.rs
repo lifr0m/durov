@@ -1,3 +1,4 @@
+use crate::constants::{FALSE_ID, TRUE_ID, VECTOR_ID};
 use crate::cursor::Cursor;
 use crate::utils::calc_pad_len;
 use crate::BareVec;
@@ -13,9 +14,9 @@ pub enum Error {
     #[error("string decode: {0}")]
     StringDecode(#[from] std::string::FromUtf8Error),
 
-    #[error("mismatching id: expected {expected}, received {received}")]
+    #[error("mismatching id: expected {expected:?}, received {received}")]
     IdMismatch {
-        expected: i32,
+        expected: Vec<i32>,
         received: i32,
     },
 
@@ -38,6 +39,21 @@ pub trait Deserialize: Sized {
         let mut cur = Cursor::new(src);
         let obj = Self::deserialize(&mut cur)?;
         Ok((obj, cur.tell()))
+    }
+}
+
+impl Deserialize for bool {
+    fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
+        let id = i32::deserialize(src)?;
+
+        match id {
+            TRUE_ID => Ok(true),
+            FALSE_ID => Ok(false),
+            _ => Err(Error::IdMismatch {
+                expected: vec![TRUE_ID, FALSE_ID],
+                received: id,
+            }),
+        }
     }
 }
 
@@ -121,9 +137,9 @@ impl<T: Deserialize> Deserialize for Vec<T> {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let id = i32::deserialize(src)?;
 
-        if id != crate::constants::VECTOR_ID {
+        if id != VECTOR_ID {
             return Err(Error::IdMismatch {
-                expected: crate::constants::VECTOR_ID,
+                expected: vec![VECTOR_ID],
                 received: id,
             });
         }

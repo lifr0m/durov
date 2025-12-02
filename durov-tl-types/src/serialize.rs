@@ -1,4 +1,5 @@
 use crate::buffer::Buffer;
+use crate::constants::{FALSE_ID, TRUE_ID, VECTOR_ID};
 use crate::utils::calc_pad_len;
 use crate::BareVec;
 use crypto_bigint::{I128, I256};
@@ -17,6 +18,16 @@ pub trait Serialize {
 impl<T: ?Sized + Serialize> Serialize for &T {
     fn serialize(&self, dst: &mut Buffer) {
         (*self).serialize(dst);
+    }
+}
+
+impl Serialize for bool {
+    fn serialize(&self, dst: &mut Buffer) {
+        if *self {
+            TRUE_ID.serialize(dst);
+        } else {
+            FALSE_ID.serialize(dst);
+        }
     }
 }
 
@@ -85,7 +96,7 @@ impl Serialize for Vec<u8> {
 
 impl<T: Serialize> Serialize for [T] {
     fn serialize(&self, dst: &mut Buffer) {
-        crate::constants::VECTOR_ID.serialize(dst);
+        VECTOR_ID.serialize(dst);
         (self.len() as i32).serialize(dst);
         self.iter().for_each(|e| e.serialize(dst));
     }
