@@ -3,7 +3,6 @@ use crate::constants::{FALSE_ID, TRUE_ID, VECTOR_ID};
 use crate::utils::calc_pad_len;
 use crate::BareVec;
 use crypto_bigint::{I128, I256};
-use std::sync::Arc;
 
 pub trait Serialize {
     fn serialize(&self, dst: &mut Buffer);
@@ -15,7 +14,7 @@ pub trait Serialize {
     }
 }
 
-impl<T: ?Sized + Serialize> Serialize for &T {
+impl<T: Serialize> Serialize for &T {
     fn serialize(&self, dst: &mut Buffer) {
         (*self).serialize(dst);
     }
@@ -58,12 +57,6 @@ impl Serialize for str {
 impl Serialize for String {
     fn serialize(&self, dst: &mut Buffer) {
         self.as_str().serialize(dst);
-    }
-}
-
-impl<const N: usize> Serialize for [u8; N] {
-    fn serialize(&self, dst: &mut Buffer) {
-        dst.extend_back(self);
     }
 }
 
@@ -127,13 +120,7 @@ impl Serialize for I256 {
     }
 }
 
-impl<T: ?Sized + Serialize> Serialize for Box<T> {
-    fn serialize(&self, dst: &mut Buffer) {
-        self.as_ref().serialize(dst);
-    }
-}
-
-impl<T: ?Sized + Serialize> Serialize for Arc<T> {
+impl<T: Serialize> Serialize for Box<T> {
     fn serialize(&self, dst: &mut Buffer) {
         self.as_ref().serialize(dst);
     }

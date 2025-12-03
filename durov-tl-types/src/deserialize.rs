@@ -3,7 +3,6 @@ use crate::cursor::Cursor;
 use crate::utils::calc_pad_len;
 use crate::BareVec;
 use crypto_bigint::{Encoding, I128, I256, U128, U256};
-use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -85,14 +84,6 @@ impl Deserialize for String {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let data = Vec::<u8>::deserialize(src)?;
         Ok(String::from_utf8(data)?)
-    }
-}
-
-impl<const N: usize> Deserialize for [u8; N] {
-    fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
-        let mut val = [0; N];
-        src.read(&mut val)?;
-        Ok(val)
     }
 }
 
@@ -183,13 +174,6 @@ impl<T: Deserialize> Deserialize for Box<T> {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let val = T::deserialize(src)?;
         Ok(Box::new(val))
-    }
-}
-
-impl<T: Deserialize> Deserialize for Arc<T> {
-    fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
-        let val = T::deserialize(src)?;
-        Ok(Arc::new(val))
     }
 }
 
