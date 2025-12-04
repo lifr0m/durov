@@ -36,6 +36,7 @@ impl Write for DataType {
                 typ.write(writer, context);
                 writer.raw_write(">");
             }
+            DataType::ConditionalTrue { .. } => writer.raw_write("bool"),
             DataType::Boxed(typ) => {
                 writer.raw_write("Box::<");
                 typ.write(writer, context);

@@ -50,6 +50,9 @@ fn check_data_type(typ: &DataType, available_names: &HashSet<Name>, condition_fi
             check_data_type(typ, available_names, condition_fields);
             assert!(condition_fields.contains(field));
         }
+        DataType::ConditionalTrue { field, .. } => {
+            assert!(condition_fields.contains(field));
+        }
         DataType::Boxed(typ) => check_data_type(typ, available_names, condition_fields),
         _ => (),
     }

@@ -15,6 +15,7 @@ const IGNORED_COMBINATORS: &[&str] = &[
     "int256 8*[ int ] = Int256",
     "boolFalse#bc799737 = Bool",
     "boolTrue#997275b5 = Bool",
+    "true#3fedd339 = True",
 ];
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -50,6 +51,10 @@ pub enum DataType {
         field: String,
         bit: u8,
         typ: Box<DataType>,
+    },
+    ConditionalTrue {
+        field: String,
+        bit: u8,
     },
     Boxed(Box<DataType>),
 }
@@ -247,9 +252,13 @@ fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
             let bit = bit.parse()
                 .unwrap();
 
-            let typ = Box::new(parse_data_type(line, poly_type));
+            if line == "true" {
+                DataType::ConditionalTrue { field, bit }
+            } else {
+                let typ = Box::new(parse_data_type(line, poly_type));
 
-            DataType::Conditional { field, bit, typ }
+                DataType::Conditional { field, bit, typ }
+            }
         }
         _ => DataType::Defined(parse_name(line)),
     }

@@ -148,10 +148,13 @@ impl Write for Combinator {
                 if !cond_fields.is_empty() {
                     writer.raw_write("| ");
                 }
-                for (idx, (name, bit)) in cond_fields.iter().enumerate() {
+                for (idx, (name, bit, bool)) in cond_fields.iter().enumerate() {
                     writer.raw_write("(self.");
                     writer.raw_write(&no_reserved_keyword(name));
-                    writer.raw_write(".is_some() as i32) << ");
+                    if !bool {
+                        writer.raw_write(".is_some()");
+                    }
+                    writer.raw_write(" as i32) << ");
                     writer.raw_write(&bit.to_string());
                     writer.raw_write(" ");
                     if idx + 1 < cond_fields.len() {
@@ -172,7 +175,7 @@ impl Write for Combinator {
                 writer.raw_write("_.serialize(dst);\n");
                 writer.subtract_indent();
                 writer.indent_write("}\n");
-            } else {
+            } else if !matches!(field.typ, DataType::ConditionalTrue { .. }) {
                 writer.indent_write("self.");
                 writer.raw_write(&no_reserved_keyword(&field.name));
                 writer.raw_write(".serialize(dst);\n");
@@ -213,6 +216,13 @@ impl Write for Combinator {
                         writer.raw_write("_ & (1 << ");
                         writer.raw_write(&bit.to_string());
                         writer.raw_write(") != 0 { Some(crate::Deserialize::deserialize(src)?) } else { None };\n");
+                    }
+                    DataType::ConditionalTrue { field, bit } => {
+                        writer.raw_write("_ = ");
+                        writer.raw_write(field);
+                        writer.raw_write("_ & (1 << ");
+                        writer.raw_write(&bit.to_string());
+                        writer.raw_write(") != 0;\n");
                     }
                     _ => {
                         writer.raw_write("_ = ");
@@ -265,11 +275,14 @@ fn write_polymorphic(writer: &mut Writer, poly: &Option<Polymorphic>, start: boo
     }
 }
 
-fn collect_conditional_fields(fields: &[Field], depend_on: &str) -> Vec<(String, u8)> {
+fn collect_conditional_fields(fields: &[Field], depend_on: &str) -> Vec<(String, u8, bool)> {
     fields.iter()
         .filter_map(|f| match &f.typ {
             DataType::Conditional { field, bit, .. } if field == depend_on => {
-                Some((f.name.clone(), *bit))
+                Some((f.name.clone(), *bit, false))
+            }
+            DataType::ConditionalTrue { field, bit } if field == depend_on => {
+                Some((f.name.clone(), *bit, true))
             }
             _ => None,
         })
