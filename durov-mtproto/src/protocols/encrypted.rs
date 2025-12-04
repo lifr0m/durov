@@ -5,7 +5,7 @@ use crate::log::debug_bytes;
 use crate::protocols::checkers::{check_auth_key_id, check_msg_id, check_msg_len};
 use crate::protocols::constants::{GZIP_PACKED_ID, MSG_CONTAINER_ID, RPC_RESULT_ID};
 use crate::protocols::plain::Plain;
-use crate::protocols::serialize::serialize_len_first;
+use crate::protocols::serde::serialize_len_first;
 use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
 use durov_tl_types::buffer::Buffer;

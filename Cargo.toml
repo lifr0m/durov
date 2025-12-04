@@ -4,6 +4,7 @@ members = [
     "durov-tl-parser",
     "durov-tl-gen",
     "durov-tl-types",
+    "durov-crypto",
     "durov-mtproto",
     "durov-mtclient",
 ]

@@ -4,7 +4,7 @@ mod receiver;
 mod ack;
 mod salt;
 
-use crate::{tcp, Config, Error};
+use crate::{tcp, Error, MtConfig};
 use durov_mtproto::protocols::encrypted::object::InObject;
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::transports::Transport;
@@ -31,7 +31,7 @@ impl EncryptedClient {
         Self { call_tx }
     }
 
-    pub async fn connect<T>(config: Config, auth_key: [u8; 256]) -> io::Result<Self>
+    pub async fn connect<T>(config: MtConfig, auth_key: [u8; 256]) -> io::Result<Self>
     where
         T: Transport + Send + 'static,
     {

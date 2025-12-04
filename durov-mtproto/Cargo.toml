@@ -5,15 +5,11 @@ edition = "2024"
 [dependencies]
 thiserror = "2"
 durov-tl-types = { path = "../durov-tl-types" }
+durov-crypto = { path = "../durov-crypto" }
 crypto-bigint = "0.7.0-rc.10"
 crypto-primes = "0.7.0-pre.4"
 rand = "0.10.0-rc.5"
-crc-fast = "1"
-sha2 = "0.11.0-rc.3"
-sha1 = "0.11.0-rc.3"
 rsa = { version = "0.10.0-rc.10", features = ["hazmat"] }
-ige = "0.2.0-rc.2"
-aes = "0.9.0-rc.2"
 log = "0.4"
 flate2 = { version = "1", features = ["zlib-rs"] }
 

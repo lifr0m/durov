@@ -1,24 +1,11 @@
-mod utils;
-mod hashes;
-mod logic;
-mod ciphers;
-mod primes;
-mod modular;
-
-pub use ciphers::*;
-use crypto_bigint::{BoxedUint, Odd, Random, I128, I256, U2048, U64};
+use crypto_bigint::{BoxedUint, Odd, I128, I256, U2048, U64};
 use crypto_primes::Flavor;
-use durov_tl_types::buffer::Buffer;
+pub use durov_crypto::*;
 use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
-pub use hashes::*;
-pub use logic::*;
-pub use modular::*;
-use primes::*;
 use rsa::traits::PublicKeyParts;
 use thiserror::Error;
-pub use utils::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -43,21 +30,6 @@ pub enum Error {
         received: [u8; 20],
     },
 
-    #[error("invalid dh prime: {0:?}")]
-    InvalidDhPrime(Vec<u8>),
-
-    #[error("unsafe prime: {0}")]
-    UnsafeDhPrime(Box<U2048>),
-
-    #[error("invalid dh g: {0}")]
-    InvalidDhG(i32),
-
-    #[error("unsafe dh prime {p} on g {g}")]
-    UnsafeDhPrimeOnG {
-        p: Box<U2048>,
-        g: i32,
-    },
-
     #[error("invalid g_a: {0:?}")]
     InvalidGa(Vec<u8>),
 
@@ -67,7 +39,7 @@ pub enum Error {
         n: Box<U2048>,
     },
 
-    #[error("dh extra check 2 failed on: p {p}, n {n}")]
+    #[error("dh extra check 2 failed: p {p}, n {n}")]
     DhExtraCheck2Failed {
         p: Box<U2048>,
         n: Box<U2048>,
@@ -79,16 +51,7 @@ pub enum Direction {
     ServerToClient,
 }
 
-pub fn random_bigint<T: Random>() -> T {
-    T::random(&mut rand::rng())
-}
-
-fn serialize_boxed_bigint(n: &BoxedUint) -> Vec<u8> {
-    n.to_be_bytes_trimmed_vartime()
-        .into_vec()
-}
-
-pub fn compute_rsa_pubkey_fingerprint(pubkey: &rsa::RsaPublicKey) -> i64 {
+pub fn compute_pubkey_fingerprint(pubkey: &rsa::RsaPublicKey) -> i64 {
     let pubkey = tl::types::RsaPublicKey {
         n: serialize_boxed_bigint(pubkey.n()),
         e: serialize_boxed_bigint(pubkey.e()),
@@ -172,7 +135,7 @@ pub fn rsa_pad(data: &[u8], server_pubkey: &rsa::RsaPublicKey) -> Result<Vec<u8>
     };
 
     let encrypted_data = serialize_boxed_bigint(
-        &rsa::hazmat::rsa_encrypt(server_pubkey, &key_aes_encrypted)?,
+        &rsa::hazmat::rsa_encrypt(server_pubkey, &key_aes_encrypted)?
     );
 
     Ok(encrypted_data)
@@ -249,56 +212,11 @@ pub fn decrypt_answer(
     Ok((answer, tmp_aes_key, tmp_aes_iv))
 }
 
-pub fn parse_dh_prime(dh_prime: Vec<u8>) -> Result<U2048, Error> {
-    if dh_prime.len() == U2048::BYTES {
-        Ok(U2048::from_be_slice(&dh_prime))
-    } else {
-        Err(Error::InvalidDhPrime(dh_prime))
-    }
-}
-
-pub fn ensure_dh_prime_safe(p: &U2048) -> Result<(), Error> {
-    if U2048::ONE.shl(2047) < *p && crypto_primes::is_prime(Flavor::Safe, p) {
-        Ok(())
-    } else {
-        Err(Error::UnsafeDhPrime(Box::new(*p)))
-    }
-}
-
-pub fn ensure_dh_g_safe(p: &U2048, g: i32) -> Result<(), Error> {
-    if match g {
-        2 => dh_g_check_helper(p, 8, [7]),
-        3 => dh_g_check_helper(p, 3, [2]),
-        4 => true,
-        5 => dh_g_check_helper(p, 5, [1, 4]),
-        6 => dh_g_check_helper(p, 24, [19, 23]),
-        7 => dh_g_check_helper(p, 7, [3, 5, 6]),
-        _ => return Err(Error::InvalidDhG(g)),
-    } {
-        Ok(())
-    } else {
-        Err(Error::UnsafeDhPrimeOnG {
-            p: Box::new(*p),
-            g,
-        })
-    }
-}
-
-fn dh_g_check_helper<const N: usize>(p: &U2048, n: u32, results: [u32; N]) -> bool {
-    let r = p % U2048::from(n);
-    let results = results.map(U2048::from);
-    results.contains(&r)
-}
-
-pub fn parse_g(g: i32) -> U2048 {
-    U2048::from(g as u32)
-}
-
-pub fn parse_g_a(g_a: Vec<u8>) -> Result<U2048, Error> {
+pub fn parse_g_a(g_a: &[u8]) -> Result<U2048, Error> {
     if g_a.len() == U2048::BYTES {
-        Ok(U2048::from_be_slice(&g_a))
+        Ok(U2048::from_be_slice(g_a))
     } else {
-        Err(Error::InvalidGa(g_a))
+        Err(Error::InvalidGa(g_a.to_vec()))
     }
 }
 
@@ -362,12 +280,6 @@ pub fn encrypt_data(
     aes256_ige_encrypt(&mut encrypted_data, tmp_aes_key, tmp_aes_iv);
 
     encrypted_data.to_vec()
-}
-
-pub fn extend_random(buf: &mut Buffer, len: usize) {
-    let start = buf.len();
-    buf.resize_back(len);
-    rand::fill(&mut buf[start..]);
 }
 
 pub fn compute_auth_key(p: U2048, g_a: &U2048, b: &U2048) -> [u8; 256] {

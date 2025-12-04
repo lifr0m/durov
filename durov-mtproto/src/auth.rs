@@ -3,12 +3,16 @@ use crate::datacenter::{Datacenter, DatacenterType};
 use crypto_bigint::{I128, I256, U2048};
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
+use rsa::pkcs1::DecodeRsaPublicKey;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("crypto: {0}")]
     Crypto(#[from] crypto::Error),
+
+    #[error("durov crypto: {0}")]
+    DurovCrypto(#[from] durov_crypto::Error),
 
     #[error("nonce mismatch: expected {expected}, received {received}")]
     NonceMismatch {
@@ -28,8 +32,8 @@ pub enum Error {
         received: [u8; 16],
     },
 
-    #[error("rsa pubkey fingerprint mismatch: expected {expected}, received {received:?}")]
-    RsaPubkeyFingerprintMismatch {
+    #[error("pubkey fingerprint mismatch: expected {expected}, received {received:?}")]
+    PubkeyFingerprintMismatch {
         expected: i64,
         received: Vec<i64>,
     },
@@ -78,20 +82,17 @@ pub fn step1() -> Step1 {
     Step1 { req, nonce }
 }
 
-pub fn step2(
-    res: tl::enums::ResPq,
-    nonce: I128,
-    dc: &Datacenter,
-    pubkey: &rsa::RsaPublicKey,
-) -> Result<Step2, Error> {
+pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step2, Error> {
     let tl::enums::ResPq::ResPq(res) = res;
 
     ensure_nonce_equal(nonce, res.nonce)?;
 
-    let fingerprint = crypto::compute_rsa_pubkey_fingerprint(pubkey);
+    let pubkey = rsa::RsaPublicKey::from_pkcs1_pem(dc.pubkey)
+        .unwrap();
+    let fingerprint = crypto::compute_pubkey_fingerprint(&pubkey);
 
     if !res.server_public_key_fingerprints.contains(&fingerprint) {
-        return Err(Error::RsaPubkeyFingerprintMismatch {
+        return Err(Error::PubkeyFingerprintMismatch {
             expected: fingerprint,
             received: res.server_public_key_fingerprints,
         });
@@ -125,7 +126,7 @@ pub fn step2(
         p: crypto::serialize_p_q(p),
         q: crypto::serialize_p_q(q),
         public_key_fingerprint: fingerprint,
-        encrypted_data: crypto::rsa_pad(&data.to_bytes(), pubkey)?,
+        encrypted_data: crypto::rsa_pad(&data.to_bytes(), &pubkey)?,
     };
 
     Ok(Step2 { req, server_nonce: res.server_nonce, new_nonce })
@@ -161,12 +162,12 @@ pub fn step3(
     ensure_nonce_equal(nonce, answer.nonce)?;
     ensure_server_nonce_equal(server_nonce, answer.server_nonce)?;
 
-    let p = crypto::parse_dh_prime(answer.dh_prime)?;
-    crypto::ensure_dh_prime_safe(&p)?;
-    crypto::ensure_dh_g_safe(&p, answer.g)?;
+    let p = crypto::parse_prime(&answer.dh_prime)?;
+    crypto::ensure_prime_safe(&p)?;
+    crypto::ensure_g_safe(&p, answer.g)?;
 
     let g = crypto::parse_g(answer.g);
-    let g_a = crypto::parse_g_a(answer.g_a)?;
+    let g_a = crypto::parse_g_a(&answer.g_a)?;
 
     crypto::ensure_dh_extra_1(&p, &g)?;
     crypto::ensure_dh_extra_1(&p, &g_a)?;

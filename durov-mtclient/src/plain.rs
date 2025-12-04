@@ -1,5 +1,5 @@
 use crate::encrypted::EncryptedClient;
-use crate::{tcp, Config, Error};
+use crate::{tcp, Error, MtConfig};
 use durov_mtproto::auth;
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::protocols::plain::Plain;
@@ -12,14 +12,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 pub struct PlainClient<T> {
-    config: Config,
+    config: MtConfig,
     stream: TcpStream,
     transport: T,
     protocol: Plain,
 }
 
 impl<T: Transport> PlainClient<T> {
-    pub async fn connect(config: Config) -> io::Result<Self> {
+    pub async fn connect(config: MtConfig) -> io::Result<Self> {
         let stream = tcp::connect(config.dc.host, config.dc.port).await?;
         let transport = T::default();
         let protocol = Plain::new();
@@ -65,7 +65,7 @@ where
         let step1 = auth::step1();
         let res = self.call(&step1.req).await?;
 
-        let step2 = auth::step2(res, step1.nonce, &self.config.dc, &self.config.pubkey)?;
+        let step2 = auth::step2(res, step1.nonce, self.config.dc)?;
         let res = self.call(&step2.req).await?;
 
         let step3 = auth::step3(res, step1.nonce, step2.server_nonce, step2.new_nonce)?;

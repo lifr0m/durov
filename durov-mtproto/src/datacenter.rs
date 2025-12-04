@@ -9,4 +9,5 @@ pub struct Datacenter {
     pub typ: DatacenterType,
     pub host: &'static str,
     pub port: u16,
+    pub pubkey: &'static str,
 }

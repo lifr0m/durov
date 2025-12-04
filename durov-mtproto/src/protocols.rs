@@ -3,7 +3,7 @@ pub mod encrypted;
 pub mod time;
 mod constants;
 mod checkers;
-mod serialize;
+mod serde;
 
 use durov_tl_types::deserialize;
 use thiserror::Error;
