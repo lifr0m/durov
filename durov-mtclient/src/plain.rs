@@ -7,7 +7,6 @@ use durov_mtproto::transports::Transport;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::Call;
-use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -19,7 +18,7 @@ pub struct PlainClient<T> {
 }
 
 impl<T: Transport> PlainClient<T> {
-    pub async fn connect(config: MtConfig) -> io::Result<Self> {
+    pub async fn connect(config: MtConfig) -> Result<Self, Error> {
         let stream = tcp::connect(config.dc.host, config.dc.port).await?;
         let transport = T::default();
         let protocol = Plain::new();
@@ -62,35 +61,69 @@ where
     T: Send + 'static,
 {
     pub async fn auth(mut self) -> Result<(EncryptedClient, [u8; 256]), Error> {
-        let step1 = auth::step1();
-        let res = self.call(&step1.req).await?;
+        let mut attempt = 0;
+        let (step1, step2, step3) = loop {
+            attempt += 1;
 
-        let step2 = auth::step2(res, step1.nonce, self.config.dc)?;
-        let res = self.call(&step2.req).await?;
+            let step1 = auth::step1();
+            let res = self.call(&step1.req).await?;
 
-        let step3 = auth::step3(res, step1.nonce, step2.server_nonce, step2.new_nonce)?;
-        self.protocol.set_server_time(step3.server_time as f64);
+            let step2 = auth::step2(res, step1.nonce, self.config.dc)?;
+            let res = self.call(&step2.req).await?;
 
-        let step4 = auth::step4(
-            step1.nonce,
-            step2.server_nonce,
-            step3.tmp_aes_key,
-            step3.tmp_aes_iv,
-            &step3.p,
-            &step3.g,
-            &step3.g_a,
-            None,
-        )?;
-        let res = self.call(&step4.req).await?;
+            match auth::step3(res, step1.nonce, step2.server_nonce, step2.new_nonce) {
+                Ok(step3) => {
+                    self.protocol.set_server_time(step3.server_time as f64);
+                    break (step1, step2, step3);
+                }
+                Err(auth::Error::Restart) => {
+                    if attempt >= 3 {
+                        return Err(Error::AuthFailed);
+                    }
+                    log::warn!("restarting auth: attempt {attempt}");
+                }
+                Err(err) => return Err(err.into()),
+            }
+        };
 
-        let step5 = auth::step5(
-            res,
-            step1.nonce,
-            step2.server_nonce,
-            step2.new_nonce,
-            &step4.auth_key,
-        )?;
-        Ok((self.upgrade(step4.auth_key, step5.server_salt), step4.auth_key))
+        let mut attempt = 0;
+        let mut prev_auth_key_aux_id = None;
+        loop {
+            attempt += 1;
+
+            let step4 = auth::step4(
+                step1.nonce,
+                step2.server_nonce,
+                step3.tmp_aes_key,
+                step3.tmp_aes_iv,
+                &step3.p,
+                &step3.g,
+                &step3.g_a,
+                prev_auth_key_aux_id,
+            )?;
+            let res = self.call(&step4.req).await?;
+
+            match auth::step5(
+                res,
+                step1.nonce,
+                step2.server_nonce,
+                step2.new_nonce,
+                &step4.auth_key,
+            ) {
+                Ok(step5) => {
+                    let encrypted = self.upgrade(step4.auth_key, step5.server_salt);
+                    break Ok((encrypted, step4.auth_key));
+                }
+                Err(auth::Error::RetryStep4 { auth_key_aux_id }) => {
+                    if attempt >= 3 {
+                        return Err(Error::AuthFailed);
+                    }
+                    prev_auth_key_aux_id = Some(auth_key_aux_id);
+                    log::warn!("restarting auth step 4: attempt {attempt}");
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
     }
 
     fn upgrade(self, auth_key: [u8; 256], salt: i64) -> EncryptedClient {

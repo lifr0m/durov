@@ -12,7 +12,6 @@ use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify, Object};
 use std::any::Any;
-use tokio::io;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use worker::{CallData, Worker};
@@ -31,7 +30,7 @@ impl EncryptedClient {
         Self { call_tx }
     }
 
-    pub async fn connect<T>(config: MtConfig, auth_key: [u8; 256]) -> io::Result<Self>
+    pub async fn connect<T>(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error>
     where
         T: Transport + Send + 'static,
     {

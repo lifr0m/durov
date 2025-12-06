@@ -20,6 +20,9 @@ pub enum Error {
     #[error("auth: {0}")]
     Auth(#[from] durov_mtproto::auth::Error),
 
+    #[error("auth failed after several unsuccessful attempts")]
+    AuthFailed,
+
     #[error("connection closed")]
     Connection,
 
