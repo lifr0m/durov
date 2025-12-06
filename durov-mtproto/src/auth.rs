@@ -1,6 +1,6 @@
 use crate::crypto;
 use crate::datacenter::{Datacenter, DatacenterType};
-use crypto_bigint::{I128, I256, U2048};
+use crypto_bigint::{BoxedUint, Odd, Random, I128, I256};
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use rsa::pkcs1::DecodeRsaPublicKey;
@@ -61,9 +61,9 @@ pub struct Step2 {
 pub struct Step3 {
     pub tmp_aes_key: [u8; 32],
     pub tmp_aes_iv: [u8; 32],
-    pub p: U2048,
-    pub g: U2048,
-    pub g_a: U2048,
+    pub p: Odd<BoxedUint>,
+    pub g: BoxedUint,
+    pub g_a: BoxedUint,
     pub server_time: i32,
 }
 
@@ -77,7 +77,7 @@ pub struct Step5 {
 }
 
 pub fn step1() -> Step1 {
-    let nonce = crypto::random_bigint();
+    let nonce = I128::random(&mut rand::rng());
     let req = tl::functions::ReqPqMulti { nonce };
     Step1 { req, nonce }
 }
@@ -98,17 +98,17 @@ pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step
         });
     }
 
-    let pq = crypto::parse_pq(&res.pq)?;
+    let pq = crypto::deserialize_pq(&res.pq)?;
     crypto::ensure_pq_composite(pq)?;
     let (p, q) = crypto::factorize_pq(pq);
 
-    let new_nonce = crypto::random_bigint();
+    let new_nonce = I256::random(&mut rand::rng());
 
     let data = tl::enums::PQInnerData::PQInnerDataDc(
         tl::types::PQInnerDataDc {
-            pq: res.pq,
-            p: crypto::serialize_p_q(p),
-            q: crypto::serialize_p_q(q),
+            pq: crypto::serialize_pq(pq),
+            p: crypto::serialize_pq(p),
+            q: crypto::serialize_pq(q),
             nonce,
             server_nonce: res.server_nonce,
             new_nonce,
@@ -119,14 +119,15 @@ pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step
             },
         }
     );
+    let data = data.to_bytes();
 
     let req = tl::functions::ReqDhParams {
         nonce,
         server_nonce: res.server_nonce,
-        p: crypto::serialize_p_q(p),
-        q: crypto::serialize_p_q(q),
+        p: crypto::serialize_pq(p),
+        q: crypto::serialize_pq(q),
         public_key_fingerprint: fingerprint,
-        encrypted_data: crypto::rsa_pad(&data.to_bytes(), &pubkey)?,
+        encrypted_data: crypto::rsa_pad(&data, &pubkey)?,
     };
 
     Ok(Step2 { req, server_nonce: res.server_nonce, new_nonce })
@@ -162,12 +163,13 @@ pub fn step3(
     ensure_nonce_equal(nonce, answer.nonce)?;
     ensure_server_nonce_equal(server_nonce, answer.server_nonce)?;
 
-    let p = crypto::parse_prime(&answer.dh_prime)?;
+    let p = crypto::deserialize_bigint(&answer.dh_prime, 2048)?;
     crypto::ensure_prime_safe(&p)?;
-    crypto::ensure_g_safe(&p, answer.g)?;
+    let p = Odd::new(p).unwrap();
 
-    let g = crypto::parse_g(answer.g);
-    let g_a = crypto::parse_g_a(&answer.g_a)?;
+    crypto::ensure_g_safe(&p, answer.g)?;
+    let g = crypto::deserialize_bigint(&answer.g.to_be_bytes(), 2048)?;
+    let g_a = crypto::deserialize_bigint(&answer.g_a, 2048)?;
 
     crypto::ensure_dh_extra_1(&p, &g)?;
     crypto::ensure_dh_extra_1(&p, &g_a)?;
@@ -182,16 +184,16 @@ pub fn step4(
     server_nonce: I128,
     tmp_aes_key: [u8; 32],
     tmp_aes_iv: [u8; 32],
-    p: U2048,
-    g: &U2048,
-    g_a: &U2048,
+    p: &Odd<BoxedUint>,
+    g: &BoxedUint,
+    g_a: &BoxedUint,
     prev_auth_key_aux_id: Option<i64>,
 ) -> Result<Step4, Error> {
-    let b = crypto::random_bigint();
-    let g_b = crypto::compute_g_b(p, g, &b);
+    let b = crypto::random_bigint(2048);
+    let g_b = crypto::pow_mod(g, &b, p);
 
-    crypto::ensure_dh_extra_1(&p, &g_b)?;
-    crypto::ensure_dh_extra_2(&p, &g_b)?;
+    crypto::ensure_dh_extra_1(p, &g_b)?;
+    crypto::ensure_dh_extra_2(p, &g_b)?;
 
     let req = tl::functions::SetClientDhParams {
         nonce,
@@ -206,7 +208,9 @@ pub fn step4(
         ),
     };
 
-    let auth_key = crypto::compute_auth_key(p, g_a, &b);
+    let auth_key = crypto::pow_mod(g_a, &b, p);
+    let auth_key = crypto::serialize_bigint_padded(&auth_key);
+    let auth_key = crypto::make_arr([&auth_key]);
 
     Ok(Step4 { req, auth_key })
 }

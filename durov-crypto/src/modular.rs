@@ -1,13 +1,8 @@
-use crypto_bigint::modular::{MontyForm, MontyParams};
-use crypto_bigint::{Odd, Uint};
+use crypto_bigint::modular::{BoxedMontyForm, BoxedMontyParams};
+use crypto_bigint::{BoxedUint, Odd};
 
-pub fn pow_mod<const LIMBS: usize>(
-    n: &Uint<LIMBS>,
-    exp: &Uint<LIMBS>,
-    modulus: Odd<Uint<LIMBS>>,
-) -> Uint<LIMBS> {
-    let params = MontyParams::new(modulus);
-    let monty = MontyForm::new(n, params);
-    monty.pow(exp)
-        .retrieve()
+pub fn pow_mod(num: &BoxedUint, exp: &BoxedUint, modulus: &Odd<BoxedUint>) -> BoxedUint {
+    let params = BoxedMontyParams::new(modulus.clone());
+    let num = BoxedMontyForm::new(num.clone(), params);
+    num.pow(exp).retrieve()
 }

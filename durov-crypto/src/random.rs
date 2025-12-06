@@ -1,8 +1,8 @@
-use crypto_bigint::Random;
+use crypto_bigint::{BoxedUint, RandomBits};
 use durov_tl_types::buffer::Buffer;
 
-pub fn random_bigint<T: Random>() -> T {
-    T::random(&mut rand::rng())
+pub fn random_bigint(bits: u32) -> BoxedUint {
+    BoxedUint::random_bits(&mut rand::rng(), bits)
 }
 
 pub fn extend_random(buf: &mut Buffer, len: usize) {

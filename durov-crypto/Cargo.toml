@@ -13,6 +13,3 @@ sha2 = "0.11.0-rc.3"
 sha1 = "0.11.0-rc.3"
 aes = "0.9.0-rc.2"
 ige = "0.2.0-rc.2"
-
-[features]
-fast-buf = ["durov-tl-types/fast-buf"]

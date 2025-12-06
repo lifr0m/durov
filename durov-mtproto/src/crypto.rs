@@ -1,4 +1,4 @@
-use crypto_bigint::{BoxedUint, Odd, I128, I256, U2048, U64};
+use crypto_bigint::{BoxedUint, I128, I256};
 use crypto_primes::Flavor;
 pub use durov_crypto::*;
 use durov_tl_types::deserialize::Deserialize;
@@ -9,17 +9,17 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("rsa: {0}")]
+    Rsa(#[from] rsa::Error),
+
     #[error("unexpected pq size: {0} bytes")]
     UnexpectedPqSize(usize),
 
     #[error("pq is prime: {0}")]
-    PrimePq(i64),
+    PrimePq(u64),
 
     #[error("rsa_pad data argument is too long: {0} bytes")]
     RsaPadDataTooLong(usize),
-
-    #[error("rsa: {0}")]
-    Rsa(#[from] rsa::Error),
 
     #[error("invalid server dh inner data")]
     InvalidServerDhInnerData,
@@ -30,19 +30,16 @@ pub enum Error {
         received: [u8; 20],
     },
 
-    #[error("invalid g_a: {0:?}")]
-    InvalidGa(Vec<u8>),
-
     #[error("dh extra check 1 failed: p {p}, n {n}")]
     DhExtraCheck1Failed {
-        p: Box<U2048>,
-        n: Box<U2048>,
+        p: BoxedUint,
+        n: BoxedUint,
     },
 
     #[error("dh extra check 2 failed: p {p}, n {n}")]
     DhExtraCheck2Failed {
-        p: Box<U2048>,
-        n: Box<U2048>,
+        p: BoxedUint,
+        n: BoxedUint,
     },
 }
 
@@ -53,48 +50,40 @@ pub enum Direction {
 
 pub fn compute_pubkey_fingerprint(pubkey: &rsa::RsaPublicKey) -> i64 {
     let pubkey = tl::types::RsaPublicKey {
-        n: serialize_boxed_bigint(pubkey.n()),
-        e: serialize_boxed_bigint(pubkey.e()),
+        n: serialize_bigint(pubkey.n()),
+        e: serialize_bigint(pubkey.e()),
     };
     let hash = sha1([&pubkey.to_bytes()]);
     let data = make_arr([&hash[12..]]);
     i64::from_le_bytes(data)
 }
 
-pub fn parse_pq(data: &[u8]) -> Result<i64, Error> {
+pub fn deserialize_pq(data: &[u8]) -> Result<u64, Error> {
     if data.len() == 8 {
-        let mut pq = [0; 8];
-        pq.copy_from_slice(data);
-        Ok(i64::from_be_bytes(pq))
+        let data = make_arr([data]);
+        Ok(u64::from_be_bytes(data))
     } else {
         Err(Error::UnexpectedPqSize(data.len()))
     }
 }
 
-pub fn ensure_pq_composite(pq: i64) -> Result<(), Error> {
-    if !crypto_primes::is_prime(Flavor::Any, &U64::from(pq as u64)) {
+pub fn ensure_pq_composite(pq: u64) -> Result<(), Error> {
+    if !crypto_primes::is_prime(Flavor::Any, &BoxedUint::from(pq)) {
         Ok(())
     } else {
         Err(Error::PrimePq(pq))
     }
 }
 
-pub fn serialize_p_q(n: i64) -> Vec<u8> {
-    let n = BoxedUint::from(n as u64);
-    serialize_boxed_bigint(&n)
+pub fn factorize_pq(pq: u64) -> (u64, u64) {
+    let p = factorize(pq as u128) as u64;
+    let q = pq / p;
+    if p < q { (p, q) } else { (q, p) }
 }
 
-pub fn factorize_pq(pq: i64) -> (i64, i64) {
-    let p = factorize(pq as i128)
-        .expect("can't factorize pq")
-        as i64;
-    let q = pq / p;
-
-    if p < q {
-        (p, q)
-    } else {
-        (q, p)
-    }
+pub fn serialize_pq(num: u64) -> Vec<u8> {
+    let num = BoxedUint::from(num);
+    serialize_bigint(&num)
 }
 
 pub fn rsa_pad(data: &[u8], server_pubkey: &rsa::RsaPublicKey) -> Result<Vec<u8>, Error> {
@@ -127,25 +116,21 @@ pub fn rsa_pad(data: &[u8], server_pubkey: &rsa::RsaPublicKey) -> Result<Vec<u8>
             &temp_key_xor,
             &aes_encrypted,
         ]);
-        let key_aes_encrypted = BoxedUint::from_be_slice_vartime(&key_aes_encrypted);
+        let key_aes_encrypted = deserialize_bigint(&key_aes_encrypted, 2048)
+            .unwrap();
 
         if key_aes_encrypted < **server_pubkey.n() {
             break key_aes_encrypted;
         }
     };
 
-    let encrypted_data = serialize_boxed_bigint(
-        &rsa::hazmat::rsa_encrypt(server_pubkey, &key_aes_encrypted)?
-    );
+    let encrypted_data = rsa::hazmat::rsa_encrypt(server_pubkey, &key_aes_encrypted)?;
+    let encrypted_data = serialize_bigint(&encrypted_data);
 
     Ok(encrypted_data)
 }
 
-pub fn compute_new_nonce_hash(
-    new_nonce: I256,
-    byte: &[u8],
-    auth_key_aux_id: &[u8],
-) -> [u8; 16] {
+pub fn compute_new_nonce_hash(new_nonce: I256, byte: &[u8], auth_key_aux_id: &[u8]) -> [u8; 16] {
     let hash = sha1([
         &new_nonce.as_uint().to_le_bytes(),
         byte,
@@ -154,11 +139,9 @@ pub fn compute_new_nonce_hash(
     make_arr([&hash[4..]])
 }
 
-pub fn decrypt_answer(
-    new_nonce: I256,
-    server_nonce: I128,
-    encrypted_answer: Vec<u8>,
-) -> Result<(tl::enums::ServerDhInnerData, [u8; 32], [u8; 32]), Error> {
+pub fn decrypt_answer(new_nonce: I256, server_nonce: I128, encrypted_answer: Vec<u8>)
+    -> Result<(tl::enums::ServerDhInnerData, [u8; 32], [u8; 32]), Error>
+{
     let tmp_aes_key = make_arr([
         &sha1([
             &new_nonce.as_uint().to_le_bytes(),
@@ -212,47 +195,35 @@ pub fn decrypt_answer(
     Ok((answer, tmp_aes_key, tmp_aes_iv))
 }
 
-pub fn parse_g_a(g_a: &[u8]) -> Result<U2048, Error> {
-    if g_a.len() == U2048::BYTES {
-        Ok(U2048::from_be_slice(g_a))
-    } else {
-        Err(Error::InvalidGa(g_a.to_vec()))
-    }
-}
+pub fn ensure_dh_extra_1(p: &BoxedUint, n: &BoxedUint) -> Result<(), Error> {
+    let one = BoxedUint::one();
 
-pub fn compute_g_b(p: U2048, g: &U2048, b: &U2048) -> U2048 {
-    pow_mod(g, b, Odd::new(p).unwrap())
-}
-
-pub fn ensure_dh_extra_1(p: &U2048, n: &U2048) -> Result<(), Error> {
-    let one = U2048::ONE;
-
-    if *n > one && *n < *p - one {
+    if *n > one && *n < p - one {
         Ok(())
     } else {
         Err(Error::DhExtraCheck1Failed {
-            p: Box::new(*p),
-            n: Box::new(*n),
+            p: p.clone(),
+            n: n.clone(),
         })
     }
 }
 
-pub fn ensure_dh_extra_2(p: &U2048, n: &U2048) -> Result<(), Error> {
-    let lower = U2048::ONE.shl(2048 - 64);
-    let upper = *p - U2048::ONE.shl(2048 - 64);
+pub fn ensure_dh_extra_2(p: &BoxedUint, n: &BoxedUint) -> Result<(), Error> {
+    let lower = BoxedUint::one_with_precision(2048).shl(2048 - 64);
+    let upper = p - BoxedUint::one_with_precision(2048).shl(2048 - 64);
 
     if lower < *n && *n < upper {
         Ok(())
     } else {
         Err(Error::DhExtraCheck2Failed {
-            p: Box::new(*p),
-            n: Box::new(*n),
+            p: p.clone(),
+            n: n.clone(),
         })
     }
 }
 
 pub fn encrypt_data(
-    g_b: &U2048,
+    g_b: &BoxedUint,
     nonce: I128,
     server_nonce: I128,
     tmp_aes_key: [u8; 32],
@@ -264,7 +235,7 @@ pub fn encrypt_data(
             nonce,
             server_nonce,
             retry_id: prev_auth_key_aux_id.unwrap_or(0),
-            g_b: g_b.to_be_bytes().to_vec(),
+            g_b: serialize_bigint(g_b),
         }
     );
     let data = data.to_bytes();
@@ -280,11 +251,6 @@ pub fn encrypt_data(
     aes256_ige_encrypt(&mut encrypted_data, tmp_aes_key, tmp_aes_iv);
 
     encrypted_data.to_vec()
-}
-
-pub fn compute_auth_key(p: U2048, g_a: &U2048, b: &U2048) -> [u8; 256] {
-    pow_mod(g_a, b, Odd::new(p).unwrap())
-        .to_be_bytes()
 }
 
 pub fn compute_server_salt(new_nonce: I256, server_nonce: I128) -> i64 {

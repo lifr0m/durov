@@ -6,7 +6,7 @@ edition = "2024"
 thiserror = "2"
 durov-tl-types = { path = "../durov-tl-types" }
 durov-crypto = { path = "../durov-crypto" }
-crypto-bigint = "0.7.0-rc.10"
+crypto-bigint = { version = "0.7.0-rc.10", features = ["alloc"] }
 crypto-primes = "0.7.0-pre.4"
 rand = "0.10.0-rc.5"
 rsa = { version = "0.10.0-rc.10", features = ["hazmat"] }

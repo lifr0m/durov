@@ -76,7 +76,7 @@ where
             step2.server_nonce,
             step3.tmp_aes_key,
             step3.tmp_aes_iv,
-            step3.p,
+            &step3.p,
             &step3.g,
             &step3.g_a,
             None,

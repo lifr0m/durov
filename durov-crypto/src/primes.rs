@@ -1,21 +1,21 @@
 use std::cmp::min;
 
-pub fn factorize(n: i128) -> Option<i128> {
-    for c in [3, 17, 113, 317] {
-        let x_0 = rand::random::<i128>() % n;
-        if let Some(g) = factorize_n(n, x_0, c) {
-            return Some(g);
-        }
-    }
-    None
+pub fn factorize(n: u128) -> u128 {
+    [3, 17, 113, 317]
+        .into_iter()
+        .find_map(|c| {
+            let x_0 = rand::random::<u128>() % n;
+            try_factorize(n, x_0, c)
+        })
+        .expect("can't factorize number")
 }
 
 /// Richard Brent's modification of Pollard's rho algorithm.
 ///
 /// https://maths-people.anu.edu.au/%7Ebrent/pd/rpb051i.pdf
 #[allow(non_snake_case)]
-fn factorize_n(N: i128, x_0: i128, c: i128) -> Option<i128> {
-    let f = |x| (i128::wrapping_mul(x, x) + c) % N;
+fn try_factorize(N: u128, x_0: u128, c: u128) -> Option<u128> {
+    let f = |x| (x * x + c) % N;
     let m = 743;
     let mut y = x_0;
     let mut r = 1;
@@ -33,7 +33,7 @@ fn factorize_n(N: i128, x_0: i128, c: i128) -> Option<i128> {
             ys = y;
             for _ in 1..=min(m, r - k) {
                 y = f(y);
-                q = q * i128::abs(x - y) % N;
+                q = q * x.abs_diff(y) % N;
             }
             G = gcd(q, N);
             k += m;
@@ -49,7 +49,7 @@ fn factorize_n(N: i128, x_0: i128, c: i128) -> Option<i128> {
     if G == N {
         loop {
             ys = f(ys);
-            G = gcd(i128::abs(x - ys), N);
+            G = gcd(x.abs_diff(ys), N);
             if G > 1 {
                 break;
             }
@@ -65,7 +65,7 @@ fn factorize_n(N: i128, x_0: i128, c: i128) -> Option<i128> {
 /// Daniel Lemire's and Ralph Corderoy's optimized Binary GCD algorithm.
 ///
 /// https://en.algorithmica.org/hpc/algorithms/gcd/
-fn gcd(mut a: i128, mut b: i128) -> i128 {
+fn gcd(mut a: u128, mut b: u128) -> u128 {
     if a == 0 {
         return b;
     }
@@ -80,10 +80,10 @@ fn gcd(mut a: i128, mut b: i128) -> i128 {
 
     while a != 0 {
         a >>= az;
-        let diff = b - a;
+        let diff = b.abs_diff(a);
         az = diff.trailing_zeros();
         b = min(a, b);
-        a = diff.abs();
+        a = diff;
     }
 
     b << shift
@@ -95,8 +95,8 @@ mod tests {
 
     #[test]
     fn test_factorize() {
-        assert!([3022102129, 3051972317].contains(&factorize(9223372036854762893).unwrap()));
-        assert!([3007208861, 3067087277].contains(&factorize(9223372036854761497).unwrap()));
-        assert!([3035785783, 3038215703].contains(&factorize(9223372036854750449).unwrap()));
+        assert!([3022102129, 3051972317].contains(&factorize(9223372036854762893)));
+        assert!([3007208861, 3067087277].contains(&factorize(9223372036854761497)));
+        assert!([3035785783, 3038215703].contains(&factorize(9223372036854750449)));
     }
 }
