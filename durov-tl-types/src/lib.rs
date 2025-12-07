@@ -3,8 +3,8 @@ pub mod deserialize;
 pub mod schemas;
 pub mod buffer;
 pub mod cursor;
-mod utils;
 mod constants;
+mod utils;
 
 use cursor::Cursor;
 use deserialize::Deserialize;
