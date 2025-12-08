@@ -10,13 +10,14 @@ use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::cursor::Cursor;
+use durov_tl_types::deserialize;
 use durov_tl_types::deserialize::Deserialize;
+use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
-use durov_tl_types::{deserialize, multiple_deserialize_object, Object};
 use flate2::bufread::{GzDecoder, GzEncoder};
 use flate2::Compression;
-use object::{InObject, OutObject};
-use std::collections::BTreeSet;
+use object::{DeserializeObject, InObject, Object, OutObject};
+use std::collections::{BTreeSet, HashMap};
 use std::io::Read;
 
 pub struct RpcResult {
@@ -148,7 +149,7 @@ impl Encrypted {
         let msg_id = get_msg_id(self.time_diff);
         msg_id.serialize(buf);
 
-        let content = is_content(object.id);
+        let content = durov_tl_types::schemas::api::ALL_IDS.contains(&object.id);
         self.next_msg_seq(content).serialize(buf);
 
         if self.use_gzip && content {
@@ -180,7 +181,12 @@ impl Encrypted {
         }
     }
 
-    pub fn unpack(&mut self, buf: &mut Buffer) -> Result<Vec<OutObject>, Error> {
+    pub fn unpack(
+        &mut self,
+        buf: &mut Buffer,
+        deserialize_list: &[DeserializeObject],
+        req_deserialize_map: &mut HashMap<i64, DeserializeObject>,
+    ) -> Result<Vec<OutObject>, Error> {
         debug_bytes("protocol [encrypted] (unpack) [encrypted]", buf);
 
         if buf.len() < Self::ENCRYPTED {
@@ -243,51 +249,100 @@ impl Encrypted {
         }
 
         let mut cur = Cursor::new(&buf[Self::DECRYPTED..]);
-        self.unpack_message(&mut cur)
+        self.unpack_message(&mut cur, deserialize_list, req_deserialize_map)
     }
 
-    fn unpack_message(&mut self, src: &mut Cursor) -> Result<Vec<OutObject>, Error> {
+    fn unpack_message(
+        &mut self,
+        src: &mut Cursor,
+        deserialize_list: &[DeserializeObject],
+        req_deserialize_map: &mut HashMap<i64, DeserializeObject>,
+    ) -> Result<Vec<OutObject>, Error> {
         let msg_id = i64::deserialize(src)?;
         let _seq = i32::deserialize(src)?;
-        let _len = i32::deserialize(src)?;
+        let len = i32::deserialize(src)? as isize;
 
         let id = i32::deserialize(src)?;
 
-        match check_msg_id(self.time_diff, &mut self.msg_id_history, msg_id, Some(id)) {
-            Ok(()) => (),
-            Err(Error::IgnoreThisMessage) => {
-                log::warn!("ignoring message: {msg_id}");
-                return Ok(Vec::new());
-            }
-            Err(err) => return Err(err),
+        if let Err(err) = check_msg_id(
+            self.time_diff,
+            &mut self.msg_id_history,
+            msg_id,
+            Some(id),
+        ) {
+            return match err {
+                Error::IgnoreThisMessage => {
+                    log::warn!("ignoring message: {msg_id}");
+                    src.seek(len - 4);
+                    Ok(vec![])
+                }
+                _ => Err(err),
+            };
         }
 
-        Ok(match id {
+        match id {
             MSG_CONTAINER_ID => {
                 let len = i32::deserialize(src)?;
+
                 let mut objects = Vec::new();
                 for _ in 0..len {
-                    let chunk = self.unpack_message(src)?;
+                    let chunk = self.unpack_message(
+                        src,
+                        deserialize_list,
+                        req_deserialize_map,
+                    )?;
                     objects.extend(chunk);
                 }
-                objects
+                Ok(objects)
+            }
+            RPC_RESULT_ID => {
+                let req_msg_id = i64::deserialize(src)?;
+
+                let Some(deserialize) = req_deserialize_map.remove(&req_msg_id) else {
+                    log::warn!("received response for unknown request: {req_msg_id}");
+                    src.seek(len - 4 - 8);
+                    return Ok(vec![]);
+                };
+                let result = ungzip(src, |src| {
+                    match object::deserialize_object::<tl::enums::RpcError>(src) {
+                        Ok(result) => Ok(result),
+                        Err(deserialize::Error::IdMismatch { .. }) => {
+                            src.seek(-4);
+                            deserialize(src)
+                        }
+                        Err(err) => Err(err),
+                    }
+                })?;
+
+                let object = Box::new(RpcResult { req_msg_id, result });
+                Ok(vec![OutObject::new(msg_id, object)])
             }
             _ => {
                 src.seek(-4);
-                let object = deserialize_object(src)?;
-                vec![OutObject::new(msg_id, object)]
+
+                for deserialize in deserialize_list {
+                    match deserialize(src) {
+                        Ok(object) => return Ok(vec![OutObject::new(msg_id, object)]),
+                        Err(deserialize::Error::IdMismatch { .. }) => src.seek(-4),
+                        Err(err) => return Err(err.into()),
+                    }
+                }
+
+                log::warn!("received unknown object: {id:x}");
+                src.seek(len);
+                Ok(vec![])
             }
-        })
+        }
     }
 }
 
-fn is_content(id: i32) -> bool {
-    durov_tl_types::schemas::api::ALL_IDS.contains(&id)
-}
-
-fn deserialize_object(src: &mut Cursor) -> Result<Object, deserialize::Error> {
+fn ungzip<F>(src: &mut Cursor, deserialize: F) -> Result<Object, deserialize::Error>
+where
+    F: Fn(&mut Cursor) -> Result<Object, deserialize::Error>,
+{
     let id = i32::deserialize(src)?;
-    Ok(match id {
+
+    match id {
         GZIP_PACKED_ID => {
             let packed_data = Vec::<u8>::deserialize(src)?;
             let mut decoder = GzDecoder::new(&*packed_data);
@@ -295,23 +350,11 @@ fn deserialize_object(src: &mut Cursor) -> Result<Object, deserialize::Error> {
             decoder.read_to_end(&mut data)
                 .map_err(deserialize::Error::GzipDecode)?;
             let mut cur = Cursor::new(&data);
-            deserialize_object(&mut cur)?
-        }
-        RPC_RESULT_ID => {
-            let req_msg_id = i64::deserialize(src)?;
-            let result = deserialize_object(src)?;
-            let object = RpcResult { req_msg_id, result };
-            Object {
-                id: RPC_RESULT_ID,
-                body: Box::new(object),
-            }
+            deserialize(&mut cur)
         }
         _ => {
             src.seek(-4);
-            multiple_deserialize_object(src, &[
-                durov_tl_types::schemas::mtproto::deserialize_object,
-                durov_tl_types::schemas::api::deserialize_object,
-            ])?
+            deserialize(src)
         }
-    })
+    }
 }

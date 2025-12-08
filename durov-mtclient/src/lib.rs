@@ -34,12 +34,6 @@ pub enum Error {
         code: i32,
         message: String,
     },
-
-    #[error("response mismatch: function {function:x}, response {response:x}")]
-    ResponseMismatch {
-        function: i32,
-        response: i32,
-    },
 }
 
 pub struct MtConfig {

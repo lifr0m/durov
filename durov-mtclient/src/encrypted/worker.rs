@@ -2,14 +2,13 @@ use crate::encrypted::ack::Ack;
 use crate::encrypted::receiver::Receiver;
 use crate::encrypted::salt::FutureSalts;
 use crate::encrypted::sender::Sender;
-use durov_mtproto::protocols::encrypted::object::InObject;
+use durov_mtproto::protocols::encrypted::object::{deserialize_object, DeserializeObject, InObject, Object};
 use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::schemas::mtproto as tl;
-use durov_tl_types::{Identify, Object};
-use std::any::Any;
+use durov_tl_types::Identify;
 use std::collections::HashMap;
 use thiserror::Error;
 use tokio::io;
@@ -34,6 +33,7 @@ enum Error {
 pub struct CallData {
     pub body: InObject,
     pub tx: oneshot::Sender<Option<Object>>,
+    pub deserialize: DeserializeObject,
 }
 
 pub struct Worker<T> {
@@ -43,6 +43,7 @@ pub struct Worker<T> {
     protocol: Encrypted,
     call_rx: mpsc::UnboundedReceiver<CallData>,
     call_map: HashMap<i64, oneshot::Sender<Option<Object>>>,
+    deserialize_map: HashMap<i64, DeserializeObject>,
     new_session_notified: bool,
     ack: Ack,
     salts: FutureSalts,
@@ -64,6 +65,7 @@ impl<T> Worker<T> {
             protocol,
             call_rx,
             call_map: HashMap::new(),
+            deserialize_map: HashMap::new(),
             new_session_notified: false,
             ack: Ack::new(),
             salts: FutureSalts::new(),
@@ -134,6 +136,7 @@ impl<T: Transport> Worker<T> {
             self.enqueue_objects(&[call.body])
         };
         self.call_map.insert(msg_ids[0], call.tx);
+        self.deserialize_map.insert(msg_ids[0], call.deserialize);
 
         Ok(())
     }
@@ -176,10 +179,19 @@ impl<T: Transport> Worker<T> {
     fn process_recv_buf(&mut self) -> Result<(), Error> {
         match self.transport.unpack(&mut self.receiver.buf) {
             Ok(()) => {
-                let objects = self.protocol.unpack(&mut self.receiver.buf)?;
+                let objects = self.protocol.unpack(
+                    &mut self.receiver.buf,
+                    &[
+                        deserialize_object::<tl::enums::NewSession>,
+                        deserialize_object::<tl::enums::FutureSalts>,
+                        deserialize_object::<tl::enums::BadMsgNotification>,
+                        deserialize_object::<tl::enums::MsgsAck>,
+                    ],
+                    &mut self.deserialize_map,
+                )?;
 
                 for obj in objects {
-                    self.process_object(obj.msg_id, obj.body.id, obj.body.body);
+                    self.process_object(obj.msg_id, obj.body);
                 }
 
                 self.receiver.buf.clear();
@@ -194,21 +206,19 @@ impl<T: Transport> Worker<T> {
         Ok(())
     }
 
-    fn process_object(&mut self, msg_id: i64, id: i32, body: Box<dyn Any>) {
+    fn process_object(&mut self, msg_id: i64, body: Object) {
         match body.downcast::<RpcResult>() {
             Ok(rpc) => {
-                if let Some(tx) = self.call_map.remove(&rpc.req_msg_id) {
-                    tx.send(Some(rpc.result)).ok();
-                } else {
-                    log::warn!("received response for unknown request: {}", rpc.req_msg_id);
-                }
+                let tx = self.call_map.remove(&rpc.req_msg_id)
+                    .expect("this check should be done in protocol unpack flow");
+                tx.send(Some(rpc.result)).ok();
                 self.ack.add(msg_id);
             }
-            Err(body) => self.process_new_session(msg_id, id, body),
+            Err(body) => self.process_new_session(msg_id, body),
         }
     }
 
-    fn process_new_session(&mut self, msg_id: i64, id: i32, body: Box<dyn Any>) {
+    fn process_new_session(&mut self, msg_id: i64, body: Object) {
         match body.downcast::<tl::enums::NewSession>() {
             Ok(new) => {
                 let tl::enums::NewSession::NewSessionCreated(new) = *new;
@@ -225,11 +235,11 @@ impl<T: Transport> Worker<T> {
 
                 self.ack.add(msg_id);
             }
-            Err(body) => self.process_future_salts(msg_id, id, body),
+            Err(body) => self.process_future_salts(msg_id, body),
         }
     }
 
-    fn process_future_salts(&mut self, msg_id: i64, id: i32, body: Box<dyn Any>) {
+    fn process_future_salts(&mut self, msg_id: i64, body: Object) {
         match body.downcast::<tl::enums::FutureSalts>() {
             Ok(future) => {
                 let tl::enums::FutureSalts::FutureSalts(future) = *future;
@@ -245,11 +255,11 @@ impl<T: Transport> Worker<T> {
                     self.salts.add(salt.salt, since);
                 }
             }
-            Err(body) => self.process_bad_msg_notification(msg_id, id, body),
+            Err(body) => self.process_bad_msg_notification(msg_id, body),
         }
     }
 
-    fn process_bad_msg_notification(&mut self, msg_id: i64, id: i32, body: Box<dyn Any>) {
+    fn process_bad_msg_notification(&mut self, msg_id: i64, body: Object) {
         match body.downcast::<tl::enums::BadMsgNotification>() {
             Ok(bad) => {
                 match *bad {
@@ -266,13 +276,14 @@ impl<T: Transport> Worker<T> {
                     }
                 }
             }
-            Err(body) => self.process_messages_ack(id, body),
+            Err(body) => self.process_messages_ack(body),
         }
     }
 
     fn apply_bad_msg_notification(&mut self, msg_id: i64, code: i32) {
         if let Some(tx) = self.call_map.remove(&msg_id) {
             tx.send(None).ok();
+            self.deserialize_map.remove(&msg_id);
             log::warn!("received bad msg notification for request: {code}");
         } else if code == 48 && !self.synced_salt {
             self.synced_salt = true;
@@ -281,14 +292,11 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn process_messages_ack(&mut self, id: i32, body: Box<dyn Any>) {
-        if !body.is::<tl::enums::MsgsAck>() {
-            self.process_unknown_object(id);
+    fn process_messages_ack(&mut self, body: Object) {
+        match body.downcast::<tl::enums::MsgsAck>() {
+            Ok(_) => (),
+            Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }
-    }
-
-    fn process_unknown_object(&mut self, id: i32) {
-        log::warn!("received unknown object: {id:x}");
     }
 
     fn enqueue_objects(&mut self, objects: &[InObject]) -> Vec<i64> {

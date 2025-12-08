@@ -1,5 +1,11 @@
+use durov_tl_types::cursor::Cursor;
+use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::serialize::Serialize;
-use durov_tl_types::{Identify, Object};
+use durov_tl_types::{deserialize, Identify};
+use std::any::Any;
+
+pub type Object = Box<dyn Any + Send>;
+pub type DeserializeObject = fn(&mut Cursor) -> Result<Object, deserialize::Error>;
 
 pub struct InObject {
     pub id: i32,
@@ -27,4 +33,12 @@ impl OutObject {
     pub fn new(msg_id: i64, body: Object) -> Self {
         Self { msg_id, body }
     }
+}
+
+pub fn deserialize_object<T>(src: &mut Cursor) -> Result<Object, deserialize::Error>
+where
+    T: Deserialize + Send + 'static,
+{
+    let object = T::deserialize(src)?;
+    Ok(Box::new(object))
 }

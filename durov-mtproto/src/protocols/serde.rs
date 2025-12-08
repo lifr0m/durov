@@ -1,13 +1,13 @@
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::serialize::Serialize;
 
-pub fn serialize_len_first<F>(buf: &mut Buffer, f: F)
+pub fn serialize_len_first<F>(buf: &mut Buffer, serialize: F)
 where
     F: Fn(&mut Buffer),
 {
     0_i32.serialize(buf);
     let start = buf.len();
-    f(buf);
+    serialize(buf);
     let len = (buf.len() - start) as i32;
     buf[start - 4..start].copy_from_slice(&len.to_le_bytes());
 }

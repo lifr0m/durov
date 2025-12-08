@@ -5,13 +5,12 @@ mod ack;
 mod salt;
 
 use crate::{tcp, Error, MtConfig};
-use durov_mtproto::protocols::encrypted::object::InObject;
+use durov_mtproto::protocols::encrypted::object::{deserialize_object, InObject, Object};
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::transports::Transport;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
-use durov_tl_types::{Call, Identify, Object};
-use std::any::Any;
+use durov_tl_types::{Call, Identify};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use worker::{CallData, Worker};
@@ -43,12 +42,14 @@ impl EncryptedClient {
     pub async fn call<F>(&self, func: F) -> Result<F::Result, Error>
     where
         F: Identify + Call + Serialize + Send + 'static,
+        F::Result: Send,
     {
         let (tx, rx) = oneshot::channel();
 
         let call = CallData {
             body: InObject::new(func),
             tx,
+            deserialize: deserialize_object::<F::Result>,
         };
         if self.call_tx.send(call).is_err() {
             return Err(Error::Connection);
@@ -63,41 +64,27 @@ impl EncryptedClient {
         self.process_rpc_response::<F>(object)
     }
 
-    fn process_rpc_response<F>(&self, object: Object) -> Result<F::Result, Error>
+    fn process_rpc_response<F: Call>(&self, object: Object) -> Result<F::Result, Error>
     where
-        F: Identify + Call,
         F::Result: 'static,
     {
-        match object.body.downcast::<F::Result>() {
+        match object.downcast::<F::Result>() {
             Ok(result) => Ok(*result),
-            Err(body) => self.process_rpc_error::<F>(object.id, body),
+            Err(object) => self.process_rpc_error::<F>(object),
         }
     }
 
-    fn process_rpc_error<F>(&self, id: i32, body: Box<dyn Any>) -> Result<F::Result, Error>
-    where
-        F: Identify + Call,
-    {
-        match body.downcast::<tl::enums::RpcError>() {
-            Ok(rpc_error) => {
-                let tl::enums::RpcError::RpcError(rpc_error) = *rpc_error;
+    fn process_rpc_error<F: Call>(&self, object: Object) -> Result<F::Result, Error> {
+        match object.downcast::<tl::enums::RpcError>() {
+            Ok(rpc) => {
+                let tl::enums::RpcError::RpcError(rpc) = *rpc;
 
                 Err(Error::RpcError {
-                    code: rpc_error.error_code,
-                    message: rpc_error.error_message,
+                    code: rpc.error_code,
+                    message: rpc.error_message,
                 })
             }
-            Err(_) => self.process_rpc_unknown::<F>(id),
+            Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }
-    }
-
-    fn process_rpc_unknown<F>(&self, id: i32) -> Result<F::Result, Error>
-    where
-        F: Identify + Call,
-    {
-        Err(Error::ResponseMismatch {
-            function: F::ID,
-            response: id,
-        })
     }
 }

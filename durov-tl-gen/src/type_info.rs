@@ -68,7 +68,17 @@ impl<'a> Write for Type<'a> {
             writer.raw_write(&constructor.name.name.to_case(Case::Pascal));
             writer.raw_write("(crate::Deserialize::deserialize(src)?),\n");
         }
-        writer.indent_write("_ => return Err(crate::deserialize::Error::UnknownId(id)),\n");
+        writer.indent_write("_ => return Err(crate::deserialize::Error::IdMismatch {\n");
+        writer.add_indent();
+        writer.indent_write("expected: &[");
+        for constructor in &self.constructors {
+            writer.raw_write(&constructor.id.to_string());
+            writer.raw_write(", ");
+        }
+        writer.raw_write("],\n");
+        writer.indent_write("received: id,\n");
+        writer.subtract_indent();
+        writer.indent_write("}),\n");
         writer.subtract_indent();
         writer.indent_write("})\n");
         writer.subtract_indent();

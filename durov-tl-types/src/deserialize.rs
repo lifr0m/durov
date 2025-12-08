@@ -15,12 +15,9 @@ pub enum Error {
 
     #[error("mismatching id: expected {expected:?}, received {received}")]
     IdMismatch {
-        expected: Vec<i32>,
+        expected: &'static [i32],
         received: i32,
     },
-
-    #[error("unknown id: {0:x}")]
-    UnknownId(i32),
 
     #[error("gzip decode: {0}")]
     GzipDecode(std::io::Error),
@@ -49,7 +46,7 @@ impl Deserialize for bool {
             TRUE_ID => Ok(true),
             FALSE_ID => Ok(false),
             _ => Err(Error::IdMismatch {
-                expected: vec![TRUE_ID, FALSE_ID],
+                expected: &[TRUE_ID, FALSE_ID],
                 received: id,
             }),
         }
@@ -130,7 +127,7 @@ impl<T: Deserialize> Deserialize for Vec<T> {
 
         if id != VECTOR_ID {
             return Err(Error::IdMismatch {
-                expected: vec![VECTOR_ID],
+                expected: &[VECTOR_ID],
                 received: id,
             });
         }

@@ -27,7 +27,7 @@ pub fn generate_code(schema: &Schema) -> String {
     writer.raw_write("\n");
 
     let types = collect_types(schema);
-    let mut context = Context::new(map_namespaces(schema, &types), map_types(&types));
+    let mut context = Context::new(map_namespaces(schema, &types));
     let types = group_types(types);
     types.write(&mut writer, &mut context);
 
@@ -38,20 +38,6 @@ pub fn generate_code(schema: &Schema) -> String {
     let functions = collect_combinators(schema, CombinatorType::Function);
     let functions = group_combinators(functions, CombinatorType::Function);
     functions.write(&mut writer, &mut context);
-
-    let chunk_size = 50;
-    let mut chunk_indexes = Vec::new();
-    for (idx, chunk) in schema.combinators.chunks(chunk_size).enumerate() {
-        if chunk.iter().all(|c| c.typ == CombinatorType::Function) {
-            continue;
-        }
-        let start = idx * chunk_size;
-        let end = (idx + 1) * chunk_size;
-        write_deserialize_object_chunk(&mut writer, &mut context, chunk, start, end);
-        writer.raw_write("\n");
-        chunk_indexes.push(idx);
-    }
-    write_deserialize_object(&mut writer, chunk_size, &chunk_indexes);
 
     writer.destruct()
 }
@@ -69,61 +55,6 @@ fn write_all_ids(writer: &mut Writer, schema: &Schema) {
         writer.raw_write(", ");
     }
     writer.raw_write("];\n");
-}
-
-fn write_deserialize_object(writer: &mut Writer, chunk_size: usize, chunk_indexes: &[usize]) {
-    writer.indent_write("pub fn deserialize_object(src: &mut crate::cursor::Cursor) -> Result<crate::Object, crate::deserialize::Error> {\n");
-    writer.add_indent();
-    writer.indent_write("crate::multiple_deserialize_object(src, &[\n");
-    writer.add_indent();
-    for idx in chunk_indexes {
-        let start = idx * chunk_size;
-        let end = (idx + 1) * chunk_size;
-        writer.indent_write("deserialize_object_");
-        writer.raw_write(&start.to_string());
-        writer.raw_write("_");
-        writer.raw_write(&end.to_string());
-        writer.raw_write(",\n");
-    }
-    writer.subtract_indent();
-    writer.indent_write("])\n");
-    writer.subtract_indent();
-    writer.indent_write("}\n");
-}
-
-fn write_deserialize_object_chunk(
-    writer: &mut Writer,
-    context: &mut Context,
-    combinators: &[Combinator],
-    start: usize,
-    end: usize,
-) {
-    writer.indent_write("fn deserialize_object_");
-    writer.raw_write(&start.to_string());
-    writer.raw_write("_");
-    writer.raw_write(&end.to_string());
-    writer.raw_write("(src: &mut crate::cursor::Cursor) -> Result<crate::Object, crate::deserialize::Error> {\n");
-    writer.add_indent();
-    writer.indent_write("let id = <i32 as crate::Deserialize>::deserialize(src)?;\n");
-    writer.indent_write("src.seek(-4);\n");
-    writer.indent_write("Ok(match id {\n");
-    writer.add_indent();
-    for combinator in combinators {
-        if combinator.typ == CombinatorType::Function {
-            continue;
-        }
-        writer.indent_write("<");
-        combinator.name.write(writer, context);
-        writer.raw_write(" as crate::Identify>::ID => crate::Object { id, body: Box::new(<");
-        let type_name = context.combinator_type_map[&combinator.name].clone();
-        type_name.write(writer, context);
-        writer.raw_write(" as crate::Deserialize>::deserialize(src)?) },\n");
-    }
-    writer.indent_write("_ => return Err(crate::deserialize::Error::UnknownId(id)),\n");
-    writer.subtract_indent();
-    writer.indent_write("})\n");
-    writer.subtract_indent();
-    writer.indent_write("}\n");
 }
 
 fn collect_types(schema: &Schema) -> Vec<Type<'_>> {
@@ -209,13 +140,4 @@ fn map_namespaces(schema: &Schema, types: &[Type]) -> HashMap<Name, String> {
     }
 
     map
-}
-
-fn map_types(types: &[Type]) -> HashMap<Name, Name> {
-    types.iter()
-        .flat_map(|t| {
-            t.constructors.iter()
-                .map(|c| (c.name.clone(), t.name.clone()))
-        })
-        .collect()
 }
