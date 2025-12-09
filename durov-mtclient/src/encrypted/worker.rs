@@ -187,7 +187,7 @@ impl<T: Transport> Worker<T> {
                         deserialize_object::<tl::enums::BadMsgNotification>,
                         deserialize_object::<tl::enums::MsgsAck>,
                     ],
-                    &mut self.deserialize_map,
+                    &self.deserialize_map,
                 )?;
 
                 for obj in objects {
@@ -212,6 +212,7 @@ impl<T: Transport> Worker<T> {
                 let tx = self.call_map.remove(&rpc.req_msg_id)
                     .expect("this check should be done in protocol unpack flow");
                 tx.send(Some(rpc.result)).ok();
+                self.deserialize_map.remove(&rpc.req_msg_id);
                 self.ack.add(msg_id);
             }
             Err(body) => self.process_new_session(msg_id, body),

@@ -10,6 +10,12 @@ pub enum Error {
     },
 }
 
+pub enum Seek {
+    Position(usize),
+    Forward(usize),
+    Backward(usize),
+}
+
 pub struct Cursor<'a> {
     data: &'a [u8],
     pos: usize,
@@ -27,11 +33,11 @@ impl<'a> Cursor<'a> {
         self.pos
     }
 
-    pub fn seek(&mut self, offset: isize) {
-        if offset < 0 {
-            self.pos -= -offset as usize;
-        } else {
-            self.pos += offset as usize;
+    pub fn seek(&mut self, at: Seek) {
+        match at {
+            Seek::Position(pos) => self.pos = pos,
+            Seek::Forward(offset) => self.pos += offset,
+            Seek::Backward(offset) => self.pos -= offset,
         }
     }
 
@@ -57,24 +63,21 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let data = vec![42, 50];
+        let data = [42, 50];
         let mut cur = Cursor::new(&data);
 
         let mut dst = [0; 1];
-        cur.read(&mut dst)
-            .unwrap();
+        cur.read(&mut dst).unwrap();
         assert_eq!(dst, [42]);
         assert_eq!(cur.tell(), 1);
 
-        cur.seek(-1);
+        cur.seek(Seek::Backward(1));
 
         let mut dst = [0; 2];
-        cur.read(&mut dst)
-            .unwrap();
+        cur.read(&mut dst).unwrap();
         assert_eq!(dst, [42, 50]);
 
         let mut dst = [0; 1];
-        cur.read(&mut dst)
-            .unwrap_err();
+        cur.read(&mut dst).unwrap_err();
     }
 }

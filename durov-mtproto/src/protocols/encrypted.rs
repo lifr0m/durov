@@ -9,7 +9,7 @@ use crate::protocols::serde::serialize_len_first;
 use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
 use durov_tl_types::buffer::Buffer;
-use durov_tl_types::cursor::Cursor;
+use durov_tl_types::cursor::{Cursor, Seek};
 use durov_tl_types::deserialize;
 use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::schemas::mtproto as tl;
@@ -185,7 +185,7 @@ impl Encrypted {
         &mut self,
         buf: &mut Buffer,
         deserialize_list: &[DeserializeObject],
-        req_deserialize_map: &mut HashMap<i64, DeserializeObject>,
+        req_deserialize_map: &HashMap<i64, DeserializeObject>,
     ) -> Result<Vec<OutObject>, Error> {
         debug_bytes("protocol [encrypted] (unpack) [encrypted]", buf);
 
@@ -256,12 +256,13 @@ impl Encrypted {
         &mut self,
         src: &mut Cursor,
         deserialize_list: &[DeserializeObject],
-        req_deserialize_map: &mut HashMap<i64, DeserializeObject>,
+        req_deserialize_map: &HashMap<i64, DeserializeObject>,
     ) -> Result<Vec<OutObject>, Error> {
         let msg_id = i64::deserialize(src)?;
         let _seq = i32::deserialize(src)?;
-        let len = i32::deserialize(src)? as isize;
+        let len = i32::deserialize(src)? as usize;
 
+        let end = src.tell() + len;
         let id = i32::deserialize(src)?;
 
         if let Err(err) = check_msg_id(
@@ -273,8 +274,7 @@ impl Encrypted {
             return match err {
                 Error::IgnoreThisMessage => {
                     log::warn!("ignoring message: {msg_id}");
-                    src.seek(len - 4);
-                    Ok(vec![])
+                    Ok(skip_message(src, end))
                 }
                 _ => Err(err),
             };
@@ -298,42 +298,39 @@ impl Encrypted {
             RPC_RESULT_ID => {
                 let req_msg_id = i64::deserialize(src)?;
 
-                let Some(deserialize) = req_deserialize_map.remove(&req_msg_id) else {
+                let Some(&deserialize) = req_deserialize_map.get(&req_msg_id) else {
                     log::warn!("received response for unknown request: {req_msg_id}");
-                    src.seek(len - 4 - 8);
-                    return Ok(vec![]);
+                    return Ok(skip_message(src, end));
                 };
                 let result = ungzip(src, |src| {
-                    match object::deserialize_object::<tl::enums::RpcError>(src) {
-                        Ok(result) => Ok(result),
-                        Err(deserialize::Error::IdMismatch { .. }) => {
-                            src.seek(-4);
-                            deserialize(src)
-                        }
-                        Err(err) => Err(err),
-                    }
+                    select_deserialize(src, &[
+                        object::deserialize_object::<tl::enums::RpcError>,
+                        deserialize,
+                    ])
                 })?;
 
                 let object = Box::new(RpcResult { req_msg_id, result });
                 Ok(vec![OutObject::new(msg_id, object)])
             }
             _ => {
-                src.seek(-4);
+                src.seek(Seek::Backward(4));
 
-                for deserialize in deserialize_list {
-                    match deserialize(src) {
-                        Ok(object) => return Ok(vec![OutObject::new(msg_id, object)]),
-                        Err(deserialize::Error::IdMismatch { .. }) => src.seek(-4),
-                        Err(err) => return Err(err.into()),
+                match select_deserialize(src, deserialize_list) {
+                    Ok(object) => Ok(vec![OutObject::new(msg_id, object)]),
+                    Err(deserialize::Error::IdMismatch { .. }) => {
+                        log::warn!("received unknown object: {id:x}");
+                        Ok(skip_message(src, end))
                     }
+                    Err(err) => Err(err.into()),
                 }
-
-                log::warn!("received unknown object: {id:x}");
-                src.seek(len);
-                Ok(vec![])
             }
         }
     }
+}
+
+fn skip_message(src: &mut Cursor, end: usize) -> Vec<OutObject> {
+    src.seek(Seek::Position(end));
+    vec![]
 }
 
 fn ungzip<F>(src: &mut Cursor, deserialize: F) -> Result<Object, deserialize::Error>
@@ -353,8 +350,27 @@ where
             deserialize(&mut cur)
         }
         _ => {
-            src.seek(-4);
+            src.seek(Seek::Backward(4));
+
             deserialize(src)
         }
+    }
+}
+
+fn select_deserialize(src: &mut Cursor, list: &[DeserializeObject])
+    -> Result<Object, deserialize::Error>
+{
+    match list[0](src) {
+        Ok(object) => Ok(object),
+        Err(deserialize::Error::IdMismatch { .. }) => {
+            src.seek(Seek::Backward(4));
+
+            if list.len() <= 2 {
+                list[1](src)
+            } else {
+                select_deserialize(src, &list[1..])
+            }
+        }
+        Err(err) => Err(err),
     }
 }
