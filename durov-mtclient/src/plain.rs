@@ -5,6 +5,7 @@ use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::protocols::plain::Plain;
 use durov_mtproto::transports::Transport;
 use durov_tl_types::buffer::Buffer;
+use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::Call;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -28,6 +29,7 @@ impl<T: Transport> PlainClient<T> {
     pub async fn call<F>(&mut self, func: &F) -> Result<F::Result, Error>
     where
         F: Call + Serialize,
+        F::Result: Deserialize,
     {
         let mut buf = Buffer::new();
         self.protocol.pack(&mut buf, func);

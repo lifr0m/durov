@@ -10,14 +10,12 @@ use deserialize::Deserialize;
 use serialize::Serialize;
 use std::fmt::Debug;
 
-// todo
 pub trait Identify {
     const ID: i32;
 }
 
-// todo
 pub trait Call {
-    type Result: Deserialize;
+    type Result;
 }
 
 #[derive(Debug, Clone)]
