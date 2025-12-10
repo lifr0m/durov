@@ -1,4 +1,4 @@
-use crate::client::{Auth, Client};
+use crate::client::Client;
 use crate::datacenters::{get_default_dc, get_public_key};
 use crate::{tl, Config, Error};
 use durov_mtclient::encrypted::EncryptedClient;
@@ -6,42 +6,68 @@ use durov_mtclient::plain::PlainClient;
 use durov_mtclient::MtConfig;
 use durov_mtproto::datacenter::{Datacenter, DatacenterType};
 use durov_mtproto::transports::Transport;
+use std::marker::PhantomData;
+
+pub enum Auth {
+    Absent {
+        dc_type: DatacenterType,
+        dc_id: Option<i32>,
+    },
+    Present {
+        dc_type: DatacenterType,
+        dc_id: i32,
+        auth_key: Box<[u8; 256]>,
+    },
+}
 
 impl<T: Transport> Client<T>
 where
     T: Send + 'static,
 {
-    pub(super) async fn connect_inner(config: &Config, auth: Auth) -> Result<EncryptedClient, Error> {
-        let client = match auth {
-            Auth::Absent { dc_type, dc_id } => {
-                if let Some(dc_id) = dc_id {
-                    let client = fresh_connect::<T>(config, get_default_dc(dc_type)).await?;
-                    let dc = pick_dc(&client, config, dc_type, dc_id).await?;
-                    fresh_connect::<T>(config, dc).await?
-                } else {
-                    fresh_connect::<T>(config, get_default_dc(dc_type)).await?
-                }
-            }
-            Auth::Present { dc_type, dc_id, auth_key } => {
-                let client = fresh_connect::<T>(config, get_default_dc(dc_type)).await?;
-                let dc = pick_dc(&client, config, dc_type, dc_id).await?;
-                authed_connect::<T>(config, dc, *auth_key).await?
-            }
+    pub async fn connect(config: Config, auth: Auth) -> Result<Self, Error> {
+        let dc_type = match auth {
+            Auth::Absent { dc_type, .. } => dc_type,
+            Auth::Present { dc_type, .. } => dc_type,
         };
-        init_connection(&client, config).await?;
+        let client = connect::<T>(&config, auth).await?;
 
-        Ok(client)
+        Ok(Self { config, dc_type, client, transport: PhantomData })
     }
 
-    pub(super) async fn switch_dc(&mut self, dc_id: i32) -> Result<(), Error> {
+    pub async fn switch_dc(&mut self, dc_id: i32) -> Result<(), Error> {
         let auth = Auth::Absent {
             dc_type: self.dc_type,
             dc_id: Some(dc_id),
         };
-        self.client = Self::connect_inner(&self.config, auth).await?;
+        self.client = connect::<T>(&self.config, auth).await?;
 
         Ok(())
     }
+}
+
+async fn connect<T>(config: &Config, auth: Auth) -> Result<EncryptedClient, Error>
+where
+    T: Transport + Send + 'static,
+{
+    let client = match auth {
+        Auth::Absent { dc_type, dc_id } => {
+            if let Some(dc_id) = dc_id {
+                let client = fresh_connect::<T>(config, get_default_dc(dc_type)).await?;
+                let dc = pick_dc(&client, config, dc_type, dc_id).await?;
+                fresh_connect::<T>(config, dc).await?
+            } else {
+                fresh_connect::<T>(config, get_default_dc(dc_type)).await?
+            }
+        }
+        Auth::Present { dc_type, dc_id, auth_key } => {
+            let client = fresh_connect::<T>(config, get_default_dc(dc_type)).await?;
+            let dc = pick_dc(&client, config, dc_type, dc_id).await?;
+            authed_connect::<T>(config, dc, *auth_key).await?
+        }
+    };
+    init_connection(&client, config).await?;
+
+    Ok(client)
 }
 
 async fn fresh_connect<T>(config: &Config, dc: Datacenter) -> Result<EncryptedClient, Error>

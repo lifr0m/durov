@@ -54,9 +54,18 @@ where
 
         Ok(())
     }
-}
 
-impl<T> Client<T> {
+    pub async fn bot_login(&self, token: &str) -> Result<(), Error> {
+        self.call(tl::functions::auth::ImportBotAuthorization {
+            flags: 0,
+            api_id: self.config.api_id,
+            api_hash: self.config.api_hash.clone(),
+            bot_auth_token: token.to_string(),
+        }).await?;
+
+        Ok(())
+    }
+
     async fn send_code(&self, phone: &str) -> Result<tl::enums::auth::SentCode, Error> {
         self.call(tl::functions::auth::SendCode {
             phone_number: phone.to_string(),
@@ -85,17 +94,6 @@ impl<T> Client<T> {
             phone_code: Some(code),
             email_verification: None,
         }).await
-    }
-
-    pub async fn bot_login(&self, token: &str) -> Result<(), Error> {
-        self.call(tl::functions::auth::ImportBotAuthorization {
-            flags: 0,
-            api_id: self.config.api_id,
-            api_hash: self.config.api_hash.clone(),
-            bot_auth_token: token.to_string(),
-        }).await?;
-
-        Ok(())
     }
 }
 
