@@ -7,4 +7,5 @@ members = [
     "durov-crypto",
     "durov-mtproto",
     "durov-mtclient",
+    "durov-client",
 ]

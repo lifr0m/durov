@@ -1,3 +1,4 @@
+#[derive(Copy, Clone)]
 pub enum DatacenterType {
     Production,
     Test,
@@ -7,7 +8,7 @@ pub enum DatacenterType {
 pub struct Datacenter {
     pub id: i32,
     pub typ: DatacenterType,
-    pub host: &'static str,
+    pub host: String,
     pub port: u16,
     pub pubkey: &'static str,
 }

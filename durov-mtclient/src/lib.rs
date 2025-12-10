@@ -37,6 +37,6 @@ pub enum Error {
 }
 
 pub struct MtConfig {
-    pub dc: &'static Datacenter,
+    pub dc: Datacenter,
     pub use_gzip: bool,
 }

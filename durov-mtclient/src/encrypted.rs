@@ -34,7 +34,7 @@ impl EncryptedClient {
     where
         T: Transport + Send + 'static,
     {
-        let stream = tcp::connect(config.dc.host, config.dc.port).await?;
+        let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
         let transport = T::default();
         let protocol = Encrypted::new(auth_key, config.use_gzip);
         Ok(Self::new(stream, transport, protocol))

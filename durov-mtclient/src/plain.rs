@@ -20,7 +20,7 @@ pub struct PlainClient<T> {
 
 impl<T: Transport> PlainClient<T> {
     pub async fn connect(config: MtConfig) -> Result<Self, Error> {
-        let stream = tcp::connect(config.dc.host, config.dc.port).await?;
+        let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
         let transport = T::default();
         let protocol = Plain::new();
         Ok(Self { config, stream, transport, protocol })
@@ -70,7 +70,7 @@ where
             let step1 = auth::step1();
             let res = self.call(&step1.req).await?;
 
-            let step2 = auth::step2(res, step1.nonce, self.config.dc)?;
+            let step2 = auth::step2(res, step1.nonce, &self.config.dc)?;
             let res = self.call(&step2.req).await?;
 
             match auth::step3(res, step1.nonce, step2.server_nonce, step2.new_nonce) {

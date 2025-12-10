@@ -88,7 +88,7 @@ pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step
     ensure_nonce_equal(nonce, res.nonce)?;
 
     let pubkey = rsa::RsaPublicKey::from_pkcs1_pem(dc.pubkey)
-        .unwrap();
+        .expect("we should have static valid public keys");
     let fingerprint = crypto::compute_pubkey_fingerprint(&pubkey);
 
     if !res.server_public_key_fingerprints.contains(&fingerprint) {

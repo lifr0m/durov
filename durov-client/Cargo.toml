@@ -1,0 +1,22 @@
+[package]
+name = "durov-client"
+edition = "2024"
+
+[dependencies]
+thiserror = "2"
+durov-mtclient = { path = "../durov-mtclient" }
+durov-mtproto = { path = "../durov-mtproto" }
+durov-tl-types = { path = "../durov-tl-types" }
+durov-crypto = { path = "../durov-crypto" }
+crypto-bigint = { version = "0.7.0-rc.10", features = ["alloc"] }
+pbkdf2 = "0.13.0-rc.2"
+sha2 = "0.11.0-rc.3"
+log = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+eyre = "0.6"
+env_logger = "0.11"
+
+[features]
+fast-buf = ["durov-mtclient/fast-buf"]
