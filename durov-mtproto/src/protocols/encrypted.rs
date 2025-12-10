@@ -68,7 +68,7 @@ impl Encrypted {
     }
 
     pub fn set_server_time(&mut self, server_time: f64) {
-        self.time_diff = get_now() - server_time;
+        self.time_diff = server_time - get_now();
     }
 
     pub fn set_salt(&mut self, salt: i64) {

@@ -57,7 +57,7 @@ fn ensure_time_sync(diff: f64, msg_id: i64, id: Option<i32>) -> Result<(), Error
         return Ok(());
     }
 
-    let expected_now = get_now() - diff;
+    let expected_now = get_now() + diff;
     let received_now = parse_msg_id(msg_id);
     let gap = received_now - expected_now;
 

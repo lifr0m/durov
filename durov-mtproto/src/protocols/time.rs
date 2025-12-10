@@ -7,8 +7,8 @@ pub fn get_now() -> f64 {
         .as_secs_f64()
 }
 
-pub(super) fn get_msg_id(diff: f64) -> i64 {
-    let server_now = get_now() - diff;
+pub fn get_msg_id(diff: f64) -> i64 {
+    let server_now = get_now() + diff;
     let msg_id = server_now * 2_f64.powi(32);
     let msg_id = msg_id as i64;
     msg_id - msg_id % 4

@@ -248,10 +248,10 @@ impl<T: Transport> Worker<T> {
                 for salt in future.salts.0 {
                     let now = get_now();
                     let server_now = future.now as f64;
-                    let diff = now - server_now;
+                    let diff = server_now - now;
 
                     let server_since = salt.valid_since as f64;
-                    let since = server_since + diff;
+                    let since = server_since - diff;
 
                     self.salts.add(salt.salt, since);
                 }
