@@ -16,3 +16,9 @@ Use `durov-client` crate as the main crate.
 # Feature flags
 
 - `fast-buf` - enables faster implementation of `Buffer` which uses `unsafe` code
+
+# Security
+
+Library uses [RustCrypto](https://github.com/rustcrypto) crates for all cryptography related operations.
+
+`rand` crate with default `ThreadRng` engine is used as CSPRNG.
