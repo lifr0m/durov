@@ -4,11 +4,13 @@ mod receiver;
 mod ack;
 mod salt;
 
-use crate::{tcp, Error, MtConfig};
+use crate::config::MtConfig;
+use crate::{tcp, Error};
 use durov_mtproto::protocols::encrypted::object::{deserialize_object, InObject, Object};
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::transports::Transport;
 use durov_tl_types::deserialize::Deserialize;
+use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify};

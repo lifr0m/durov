@@ -1,8 +1,8 @@
 pub mod plain;
 pub mod encrypted;
+pub mod config;
 mod tcp;
 
-use durov_mtproto::datacenter::Datacenter;
 use thiserror::Error;
 use tokio::io;
 
@@ -34,9 +34,4 @@ pub enum Error {
         code: i32,
         message: String,
     },
-}
-
-pub struct MtConfig {
-    pub dc: Datacenter,
-    pub use_gzip: bool,
 }

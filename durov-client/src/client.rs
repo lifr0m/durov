@@ -1,7 +1,8 @@
 pub mod auth;
 pub mod connect;
 
-use crate::{Config, Error};
+use crate::config::Config;
+use crate::Error;
 use durov_mtclient::encrypted::EncryptedClient;
 use durov_mtproto::datacenter::DatacenterType;
 use durov_tl_types::deserialize::Deserialize;

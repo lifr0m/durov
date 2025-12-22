@@ -1,9 +1,10 @@
 use crate::client::Client;
+use crate::config::Config;
 use crate::datacenters::{get_default_dc, get_public_key};
-use crate::{tl, Config, Error};
+use crate::{tl, Error};
+use durov_mtclient::config::MtConfig;
 use durov_mtclient::encrypted::EncryptedClient;
 use durov_mtclient::plain::PlainClient;
-use durov_mtclient::MtConfig;
 use durov_mtproto::datacenter::{Datacenter, DatacenterType};
 use durov_mtproto::transports::Transport;
 use std::marker::PhantomData;
