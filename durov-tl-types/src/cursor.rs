@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn test() {
         let data = [42, 50];
         let mut cur = Cursor::new(&data);
 

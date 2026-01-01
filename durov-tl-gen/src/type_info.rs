@@ -25,7 +25,7 @@ impl<'a> Write for Type<'a> {
         writer.subtract_indent();
         writer.indent_write("}\n\n");
 
-        writer.indent_write("impl crate::Serialize for ");
+        writer.indent_write("impl crate::serialize::Serialize for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
         writer.raw_write(" {\n");
         writer.add_indent();
@@ -52,7 +52,7 @@ impl<'a> Write for Type<'a> {
         writer.subtract_indent();
         writer.indent_write("}\n\n");
 
-        writer.indent_write("impl crate::Deserialize for ");
+        writer.indent_write("impl crate::deserialize::Deserialize for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
         writer.raw_write(" {\n");
         writer.add_indent();
@@ -66,7 +66,7 @@ impl<'a> Write for Type<'a> {
             constructor.name.write(writer, context);
             writer.raw_write(" as crate::Identify>::ID => Self::");
             writer.raw_write(&constructor.name.name.to_case(Case::Pascal));
-            writer.raw_write("(crate::Deserialize::deserialize(src)?),\n");
+            writer.raw_write("(crate::deserialize::Deserialize::deserialize(src)?),\n");
         }
         writer.indent_write("_ => return Err(crate::deserialize::Error::IdMismatch {\n");
         writer.add_indent();

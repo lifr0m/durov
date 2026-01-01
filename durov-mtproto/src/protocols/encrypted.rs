@@ -315,7 +315,9 @@ impl Encrypted {
             _ => {
                 src.seek(Seek::Backward(4));
 
-                match select_deserialize(src, deserialize_list) {
+                match ungzip(src, |src| {
+                    select_deserialize(src, deserialize_list)
+                }) {
                     Ok(object) => Ok(vec![OutObject::new(msg_id, object)]),
                     Err(deserialize::Error::IdMismatch { .. }) => {
                         log::warn!("received unknown object: {id:x}");

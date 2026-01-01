@@ -14,12 +14,14 @@ use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify};
+use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use worker::{CallData, Worker};
 
 pub struct EncryptedClient {
     call_tx: mpsc::UnboundedSender<CallData>,
+    updates_rx: Mutex<mpsc::UnboundedReceiver<api_tl::enums::Updates>>,
 }
 
 impl EncryptedClient {
@@ -28,8 +30,10 @@ impl EncryptedClient {
         T: Transport + Send + 'static,
     {
         let (call_tx, call_rx) = mpsc::unbounded_channel();
-        tokio::spawn(Worker::new(stream, transport, protocol, call_rx).run());
-        Self { call_tx }
+        let (updates_tx, updates_rx) = mpsc::unbounded_channel();
+        tokio::spawn(Worker::new(stream, transport, protocol, call_rx, updates_tx).run());
+        let updates_rx = Mutex::new(updates_rx);
+        Self { call_tx, updates_rx }
     }
 
     pub async fn connect<T>(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error>
@@ -42,16 +46,19 @@ impl EncryptedClient {
         Ok(Self::new(stream, transport, protocol))
     }
 
-    pub async fn call<F>(&self, func: F) -> Result<F::Result, Error>
+    pub async fn call<F>(&self, func: Arc<F>) -> Result<F::Result, Error>
     where
-        F: Identify + Call + Serialize + Send + 'static,
+        F: Identify + Call + Serialize + Send + Sync + 'static,
         F::Result: Deserialize + Send,
     {
         let (tx, rx) = oneshot::channel();
 
         let call = CallData {
-            body: InObject::new(func),
             tx,
+            body: InObject {
+                id: F::ID,
+                body: func,
+            },
             deserialize: deserialize_object::<F::Result>,
         };
         if self.call_tx.send(call).is_err() {
@@ -65,6 +72,15 @@ impl EncryptedClient {
             return Err(Error::Resend);
         };
         self.process_rpc_response::<F>(object)
+    }
+
+    // todo: what if we dont listen to updates and receiver just keeps growing
+    pub async fn next(&self) -> Result<api_tl::enums::Updates, Error> {
+        self.updates_rx.try_lock()
+            .expect("you can wait for update only from one task")
+            .recv()
+            .await
+            .ok_or(Error::Connection)
     }
 
     fn process_rpc_response<F: Call>(&self, object: Object) -> Result<F::Result, Error>

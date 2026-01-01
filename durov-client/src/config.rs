@@ -10,7 +10,9 @@ pub struct Config {
     pub lang_pack: String,
     pub lang_code: String,
     pub params: Option<tl::enums::JsonValue>,
+    pub prod_dc: bool,
     pub use_compression: bool,
+    pub catch_up: bool,
 }
 
 impl Config {
@@ -25,7 +27,9 @@ impl Config {
             lang_pack: String::new(),
             lang_code: String::from("en"),
             params: None,
+            prod_dc: true,
             use_compression: true,
+            catch_up: false,
         }
     }
 }

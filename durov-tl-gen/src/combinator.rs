@@ -126,8 +126,8 @@ impl Write for Combinator {
         }
 
         writer.indent_write("impl");
-        write_polymorphic(writer, &poly, true, &["crate::Serialize"]);
-        writer.raw_write(" crate::Serialize for ");
+        write_polymorphic(writer, &poly, true, &["crate::serialize::Serialize"]);
+        writer.raw_write(" crate::serialize::Serialize for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
         write_polymorphic(writer, &poly, false, &[]);
         writer.raw_write(" {\n");
@@ -188,8 +188,8 @@ impl Write for Combinator {
 
         if self.typ == CombinatorType::Constructor {
             writer.indent_write("impl");
-            write_polymorphic(writer, &poly, true, &["crate::Deserialize"]);
-            writer.raw_write(" crate::Deserialize for ");
+            write_polymorphic(writer, &poly, true, &["crate::deserialize::Deserialize"]);
+            writer.raw_write(" crate::deserialize::Deserialize for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
             write_polymorphic(writer, &poly, false, &[]);
             writer.raw_write(" {\n");
@@ -215,7 +215,7 @@ impl Write for Combinator {
                         writer.raw_write(field);
                         writer.raw_write("_ & (1 << ");
                         writer.raw_write(&bit.to_string());
-                        writer.raw_write(") != 0 { Some(crate::Deserialize::deserialize(src)?) } else { None };\n");
+                        writer.raw_write(") != 0 { Some(crate::deserialize::Deserialize::deserialize(src)?) } else { None };\n");
                     }
                     DataType::ConditionalTrue { field, bit } => {
                         writer.raw_write("_ = ");

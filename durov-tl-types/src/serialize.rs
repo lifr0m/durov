@@ -3,6 +3,7 @@ use crate::constants::*;
 use crate::utils::calc_pad_len;
 use crate::BareVec;
 use crypto_bigint::{I128, I256};
+use std::sync::Arc;
 
 pub trait Serialize {
     fn serialize(&self, dst: &mut Buffer);
@@ -121,6 +122,12 @@ impl Serialize for I256 {
 }
 
 impl<T: Serialize> Serialize for Box<T> {
+    fn serialize(&self, dst: &mut Buffer) {
+        self.as_ref().serialize(dst);
+    }
+}
+
+impl<T: Serialize> Serialize for Arc<T> {
     fn serialize(&self, dst: &mut Buffer) {
         self.as_ref().serialize(dst);
     }

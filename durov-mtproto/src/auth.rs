@@ -1,5 +1,5 @@
 use crate::crypto;
-use crate::datacenter::{Datacenter, DatacenterType};
+use crate::datacenter::Datacenter;
 use crypto_bigint::{BoxedUint, Odd, Random, I128, I256};
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
@@ -112,11 +112,7 @@ pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step
             nonce,
             server_nonce: res.server_nonce,
             new_nonce,
-            dc: match dc.typ {
-                DatacenterType::Production => dc.id,
-                DatacenterType::Test => dc.id + 10_000,
-                DatacenterType::Media => -dc.id,
-            },
+            dc: if dc.prod { dc.id } else { dc.id + 10_000 },
         }
     );
     let data = data.to_bytes();

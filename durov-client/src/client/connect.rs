@@ -1,131 +1,127 @@
 use crate::client::Client;
 use crate::config::Config;
 use crate::datacenters::{get_default_dc, get_public_key};
+use crate::sessions::{Auth, Session};
 use crate::{tl, Error};
 use durov_mtclient::config::MtConfig;
 use durov_mtclient::encrypted::EncryptedClient;
 use durov_mtclient::plain::PlainClient;
-use durov_mtproto::datacenter::{Datacenter, DatacenterType};
+use durov_mtproto::datacenter::Datacenter;
 use durov_mtproto::transports::Transport;
 use std::marker::PhantomData;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
-pub enum Auth {
-    Absent {
-        dc_type: DatacenterType,
-        dc_id: Option<i32>,
-    },
-    Present {
-        dc_type: DatacenterType,
-        dc_id: i32,
-        auth_key: Box<[u8; 256]>,
-    },
-}
-
-impl<T: Transport> Client<T>
+impl<T: Transport, S: Session> Client<T, S>
 where
     T: Send + 'static,
 {
-    pub async fn connect(config: Config, auth: Auth) -> Result<Self, Error> {
-        let dc_type = match auth {
-            Auth::Absent { dc_type, .. } => dc_type,
-            Auth::Present { dc_type, .. } => dc_type,
-        };
-        let client = connect::<T>(&config, auth).await?;
+    pub async fn connect(info: &str, config: Config) -> Result<Self, Error> {
+        let session = S::connect(info).await?;
+        session.init().await?;
 
-        Ok(Self { config, dc_type, client, transport: PhantomData })
+        let client = if let Some(auth) = session.get_auth().await? {
+            let dc = Datacenter {
+                id: auth.dc_id,
+                prod: config.prod_dc,
+                host: auth.dc_host,
+                port: auth.dc_port,
+                pubkey: get_public_key(config.prod_dc),
+            };
+            let client = authed_connect::<T>(dc, auth.auth_key, &config).await?;
+            init_connection(&client, &config).await?;
+            client
+        } else {
+            let dc = get_default_dc(config.prod_dc);
+            let (client, _) = fresh_connect::<T>(dc, &config).await?;
+            let tl_config = init_connection(&client, &config).await?;
+            let nearest_dc = client.call(tl::functions::help::GetNearestDc {}.into()).await?;
+            let tl::enums::NearestDc::NearestDc(nearest_dc) = nearest_dc;
+            let client = new_connect::<T, _>(&session, &config, tl_config, nearest_dc.nearest_dc).await?;
+            init_connection(&client, &config).await?;
+            client
+        };
+
+        Ok(Self {
+            config: Arc::new(config),
+            session: Arc::new(session),
+            client: Arc::new(RwLock::new(client)),
+            transport: PhantomData,
+        })
     }
 
-    pub async fn switch_dc(&mut self, dc_id: i32) -> Result<(), Error> {
-        let auth = Auth::Absent {
-            dc_type: self.dc_type,
-            dc_id: Some(dc_id),
+    // todo: maybe move migrate?
+    pub async fn switch_dc(&self, id: i32, migrate: bool) -> Result<(), Error> {
+        // If client is already locked for write it means switching is happening right now.
+        // We need to just wait until it's finished. It happens by locking client for read.
+        let Ok(mut client) = self.client.try_write() else {
+            return Ok(());
         };
-        self.client = connect::<T>(&self.config, auth).await?;
+
+        // Regarding user migration, docs state: "Once this happens, when executing any query
+        // transmitted to the old DC, the API will return the USER_MIGRATE_X error".
+        // I don't actually understand whether this applies to requests like help.getConfig
+        // or auth.exportAuthorization, but logically it should because there are no
+        // other way we can get authorized on new dc except sending sms code and login again.
+        let authorization = if migrate {
+            Some(client.call(tl::functions::auth::ExportAuthorization {
+                dc_id: id,
+            }.into()).await?)
+        } else {
+            None
+        };
+
+        let tl_config = client.call(tl::functions::help::GetConfig {}.into()).await?;
+        *client = new_connect::<T, _>(self.session.as_ref(), &self.config, tl_config, id).await?;
+        init_connection(&client, &self.config).await?;
+
+        if let Some(authorization) = authorization {
+            let tl::enums::auth::ExportedAuthorization::ExportedAuthorization(authorization) = authorization;
+
+            client.call(tl::functions::auth::ImportAuthorization {
+                id: authorization.id,
+                bytes: authorization.bytes,
+            }.into()).await?;
+        }
 
         Ok(())
     }
 }
 
-async fn connect<T>(config: &Config, auth: Auth) -> Result<EncryptedClient, Error>
+async fn new_connect<T, S>(session: &S, config: &Config, tl_config: tl::enums::Config, dc_id: i32)
+    -> Result<EncryptedClient, Error>
 where
     T: Transport + Send + 'static,
+    S: Session,
 {
-    let client = match auth {
-        Auth::Absent { dc_type, dc_id } => {
-            if let Some(dc_id) = dc_id {
-                let client = fresh_connect::<T>(config, get_default_dc(dc_type)).await?;
-                let dc = pick_dc(&client, config, dc_type, dc_id).await?;
-                fresh_connect::<T>(config, dc).await?
-            } else {
-                fresh_connect::<T>(config, get_default_dc(dc_type)).await?
-            }
-        }
-        Auth::Present { dc_type, dc_id, auth_key } => {
-            let client = fresh_connect::<T>(config, get_default_dc(dc_type)).await?;
-            let dc = pick_dc(&client, config, dc_type, dc_id).await?;
-            authed_connect::<T>(config, dc, *auth_key).await?
-        }
-    };
-    init_connection(&client, config).await?;
-
+    let dc = select_dc(tl_config, dc_id, config.prod_dc);
+    let (client, auth_key) = fresh_connect::<T>(dc.clone(), config).await?;
+    session.set_auth(Auth {
+        dc_id: dc.id,
+        dc_host: dc.host,
+        dc_port: dc.port,
+        auth_key,
+    }).await?;
     Ok(client)
 }
 
-async fn fresh_connect<T>(config: &Config, dc: Datacenter) -> Result<EncryptedClient, Error>
+async fn fresh_connect<T>(dc: Datacenter, config: &Config)
+    -> Result<(EncryptedClient, [u8; 256]), Error>
 where
     T: Transport + Send + 'static,
 {
-    let mt_config = MtConfig {
-        dc,
-        use_gzip: config.use_compression,
-    };
+    let mt_config = MtConfig { dc, use_gzip: config.use_compression };
     let client = PlainClient::<T>::connect(mt_config).await?;
-    let (client, auth_key) = client.auth().await?;
-    println!("auth key: {auth_key:?}");
-    Ok(client)
+    Ok(client.auth().await?)
 }
 
-async fn authed_connect<T>(config: &Config, dc: Datacenter, auth_key: [u8; 256])
+async fn authed_connect<T>(dc: Datacenter, auth_key: [u8; 256], config: &Config)
     -> Result<EncryptedClient, Error>
 where
     T: Transport + Send + 'static,
 {
-    let mt_config = MtConfig {
-        dc,
-        use_gzip: config.use_compression,
-    };
+    let mt_config = MtConfig { dc, use_gzip: config.use_compression };
     Ok(EncryptedClient::connect::<T>(mt_config, auth_key).await?)
-}
-
-async fn pick_dc(client: &EncryptedClient, config: &Config, dc_type: DatacenterType, dc_id: i32)
-    -> Result<Datacenter, Error>
-{
-    let config = init_connection(client, config).await?;
-    let tl::enums::Config::Config(config) = config;
-
-    Ok(config.dc_options.into_iter()
-        .find_map(|option| {
-            let tl::enums::DcOption::DcOption(option) = option;
-
-            if !option.ipv6
-                && !option.media_only
-                && !option.tcpo_only
-                && !option.cdn
-                && !option.static_
-                && option.id == dc_id
-            {
-                Some(Datacenter {
-                    id: option.id,
-                    typ: dc_type,
-                    host: option.ip_address,
-                    port: option.port as u16,
-                    pubkey: get_public_key(dc_type),
-                })
-            } else {
-                None
-            }
-        })
-        .expect("can't find suitable dc"))
 }
 
 async fn init_connection(client: &EncryptedClient, config: &Config)
@@ -145,5 +141,30 @@ async fn init_connection(client: &EncryptedClient, config: &Config)
             params: config.params.clone(),
             query: tl::functions::help::GetConfig {},
         },
-    }).await?)
+    }.into()).await?)
+}
+
+fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Datacenter {
+    let tl::enums::Config::Config(config) = config;
+
+    config.dc_options.into_iter()
+        .find_map(|option| {
+            let tl::enums::DcOption::DcOption(option) = option;
+
+            (
+                !option.ipv6
+                    && !option.media_only
+                    && !option.tcpo_only
+                    && !option.cdn
+                    && option.static_
+                    && option.id == id
+            ).then(|| Datacenter {
+                id: option.id,
+                prod,
+                host: option.ip_address,
+                port: option.port as u16,
+                pubkey: get_public_key(prod),
+            })
+        })
+        .expect("cant find suitable dc")
 }

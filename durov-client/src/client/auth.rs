@@ -1,24 +1,20 @@
 use crate::client::Client;
+use crate::sessions::Session;
 use crate::srp::compute_srp_check;
 use crate::{tl, Error};
 use durov_mtproto::transports::Transport;
 use std::io::Write;
 
-impl<T: Transport> Client<T>
+impl<T: Transport, S: Session> Client<T, S>
 where
     T: Send + 'static,
 {
-    pub async fn interactive_login(&mut self, phone: &str) -> Result<(), Error> {
+    pub async fn interactive_login(&self, phone: &str) -> Result<(), Error> {
         let sent_code = match self.send_code(phone).await {
             Ok(sent_code) => sent_code,
-            Err(Error::RpcError { code: 303, message }) => {
-                let dc_id = message.rsplit_once("_")
-                    .ok_or_else(|| Error::InvalidRpcError(message.clone()))?
-                    .1
-                    .parse()
-                    .map_err(|_| Error::InvalidRpcError(message.clone()))?;
-
-                self.switch_dc(dc_id).await?;
+            Err(err) if err.is(303, "PHONE_MIGRATE") => {
+                let dc_id = err.parse("PHONE_MIGRATE_X")?;
+                self.switch_dc(dc_id, false).await?;
                 self.send_code(phone).await?
             }
             Err(err) => return Err(err),
@@ -37,7 +33,7 @@ where
 
         let authorization = match self.sign_in(phone, sent_code, code).await {
             Ok(authorization) => authorization,
-            Err(Error::RpcError { code: 401, message }) if message == "SESSION_PASSWORD_NEEDED" => {
+            Err(err) if err.is(401, "SESSION_PASSWORD_NEEDED") => {
                 let pwd = self.call(tl::functions::account::GetPassword {}).await?;
                 let password = input("password");
                 let check = compute_srp_check(pwd, &password)?;
@@ -49,8 +45,6 @@ where
         if matches!(authorization, tl::enums::auth::Authorization::AuthorizationSignUpRequired(_)) {
             unimplemented!("sign up required");
         }
-
-        // todo: store user data
 
         Ok(())
     }

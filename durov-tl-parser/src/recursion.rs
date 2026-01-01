@@ -1,6 +1,7 @@
 use crate::tree::Node;
 use crate::{CombinatorType, DataType, Name, Schema};
 use std::collections::HashMap;
+use std::mem;
 
 // 4 solves the problem but 5 is more robust
 const DEPTH: usize = 5;
@@ -181,9 +182,8 @@ fn replace_data_type(typ: &mut DataType) {
         DataType::BareVector(typ) => replace_data_type(typ),
         DataType::Conditional { typ, .. } => replace_data_type(typ),
         DataType::Defined(_) => {
-            let mut actual = DataType::Int;
-            std::mem::swap(&mut actual, typ);
-            *typ = DataType::Boxed(Box::new(actual));
+            let current = mem::replace(typ, DataType::Int);
+            *typ = DataType::Boxed(Box::new(current));
         }
         _ => unreachable!(),
     }

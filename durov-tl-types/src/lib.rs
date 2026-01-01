@@ -6,10 +6,6 @@ pub mod cursor;
 mod constants;
 mod utils;
 
-use deserialize::Deserialize;
-use serialize::Serialize;
-use std::fmt::Debug;
-
 pub trait Identify {
     const ID: i32;
 }

@@ -7,9 +7,11 @@ use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
 use durov_tl_types::buffer::Buffer;
+use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::Identify;
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::io;
 use tokio::net::TcpStream;
@@ -44,6 +46,7 @@ pub struct Worker<T> {
     call_rx: mpsc::UnboundedReceiver<CallData>,
     call_map: HashMap<i64, oneshot::Sender<Option<Object>>>,
     deserialize_map: HashMap<i64, DeserializeObject>,
+    updates_tx: mpsc::UnboundedSender<api_tl::enums::Updates>,
     new_session_notified: bool,
     ack: Ack,
     salts: FutureSalts,
@@ -56,6 +59,7 @@ impl<T> Worker<T> {
         transport: T,
         protocol: Encrypted,
         call_rx: mpsc::UnboundedReceiver<CallData>,
+        updates_tx: mpsc::UnboundedSender<api_tl::enums::Updates>,
     ) -> Self {
         let (reader, writer) = stream.into_split();
         Self {
@@ -66,6 +70,7 @@ impl<T> Worker<T> {
             call_rx,
             call_map: HashMap::new(),
             deserialize_map: HashMap::new(),
+            updates_tx,
             new_session_notified: false,
             ack: Ack::new(),
             salts: FutureSalts::new(),
@@ -172,7 +177,7 @@ impl<T: Transport> Worker<T> {
         );
         InObject {
             id: tl::types::MsgsAck::ID,
-            body: Box::new(object),
+            body: Arc::new(object),
         }
     }
 
@@ -186,6 +191,7 @@ impl<T: Transport> Worker<T> {
                         deserialize_object::<tl::enums::FutureSalts>,
                         deserialize_object::<tl::enums::BadMsgNotification>,
                         deserialize_object::<tl::enums::MsgsAck>,
+                        deserialize_object::<api_tl::enums::Updates>,
                     ],
                     &self.deserialize_map,
                 )?;
@@ -296,6 +302,13 @@ impl<T: Transport> Worker<T> {
     fn process_messages_ack(&mut self, body: Object) {
         match body.downcast::<tl::enums::MsgsAck>() {
             Ok(_) => (),
+            Err(body) => self.process_updates(body),
+        }
+    }
+
+    fn process_updates(&mut self, body: Object) {
+        match body.downcast::<api_tl::enums::Updates>() {
+            Ok(updates) => { self.updates_tx.send(*updates).ok(); }
             Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }
     }
