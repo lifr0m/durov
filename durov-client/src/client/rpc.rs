@@ -18,10 +18,7 @@ where
     {
         let func = Arc::new(func);
 
-        let mut attempt = 0;
         loop {
-            attempt += 1;
-
             match self.client.read().await
                 .call(Arc::clone(&func)).await
                 .map_err(Error::from)
@@ -29,12 +26,10 @@ where
                 Ok(result) => break Ok(result),
                 Err(Error::MtClient(durov_mtclient::Error::Resend)) => (),
                 Err(err) if err.is(303, "USER_MIGRATE") => {
-                    let dc_id = err.parse("USER_MIGRATE_X")?;
+                    let dc_id = err.parse("USER_MIGRATE_%d", 0)?;
                     self.switch_dc(dc_id, true).await?;
                 }
-                Err(err) => if attempt >= 3 {
-                    break Err(err);
-                }
+                Err(err) => break Err(err),
             }
         }
     }

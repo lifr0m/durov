@@ -13,7 +13,7 @@ where
         let sent_code = match self.send_code(phone).await {
             Ok(sent_code) => sent_code,
             Err(err) if err.is(303, "PHONE_MIGRATE") => {
-                let dc_id = err.parse("PHONE_MIGRATE_X")?;
+                let dc_id = err.parse("PHONE_MIGRATE_%d", 0)?;
                 self.switch_dc(dc_id, false).await?;
                 self.send_code(phone).await?
             }

@@ -21,24 +21,10 @@ where
         session.init().await?;
 
         let client = if let Some(auth) = session.get_auth().await? {
-            let dc = Datacenter {
-                id: auth.dc_id,
-                prod: config.prod_dc,
-                host: auth.dc_host,
-                port: auth.dc_port,
-                pubkey: get_public_key(config.prod_dc),
-            };
-            let client = authed_connect::<T>(dc, auth.auth_key, &config).await?;
-            init_connection(&client, &config).await?;
-            client
+            connect_auth::<T>(&config, auth).await?
         } else {
-            let dc = get_default_dc(config.prod_dc);
-            let (client, _) = fresh_connect::<T>(dc, &config).await?;
-            let tl_config = init_connection(&client, &config).await?;
-            let nearest_dc = client.call(tl::functions::help::GetNearestDc {}.into()).await?;
-            let tl::enums::NearestDc::NearestDc(nearest_dc) = nearest_dc;
-            let client = new_connect::<T, _>(&session, &config, tl_config, nearest_dc.nearest_dc).await?;
-            init_connection(&client, &config).await?;
+            let (client, auth) = connect_new::<T>(&config, None).await?;
+            session.set_auth(&auth).await?;
             client
         };
 
@@ -50,59 +36,88 @@ where
         })
     }
 
-    // todo: maybe move migrate?
-    pub async fn switch_dc(&self, id: i32, migrate: bool) -> Result<(), Error> {
+    pub async fn switch_dc(&self, dc_id: i32, migrate: bool) -> Result<(), Error> {
         // If client is already locked for write it means switching is happening right now.
         // We need to just wait until it's finished. It happens by locking client for read.
         let Ok(mut client) = self.client.try_write() else {
             return Ok(());
         };
 
-        // Regarding user migration, docs state: "Once this happens, when executing any query
-        // transmitted to the old DC, the API will return the USER_MIGRATE_X error".
-        // I don't actually understand whether this applies to requests like help.getConfig
-        // or auth.exportAuthorization, but logically it should because there are no
-        // other way we can get authorized on new dc except sending sms code and login again.
-        let authorization = if migrate {
-            Some(client.call(tl::functions::auth::ExportAuthorization {
-                dc_id: id,
-            }.into()).await?)
+        if migrate {
+            let dc = get_dc::<T>(&self.config, Some(dc_id)).await?;
+
+            let mut auth = self.session.get_auth().await?
+                .expect("auth should be saved when connecting");
+            auth.dc_id = dc.id;
+            auth.dc_host = dc.host;
+            auth.dc_port = dc.port;
+            self.session.set_auth(&auth).await?;
+
+            *client = connect_auth::<T>(&self.config, auth).await?;
         } else {
-            None
-        };
-
-        let tl_config = client.call(tl::functions::help::GetConfig {}.into()).await?;
-        *client = new_connect::<T, _>(self.session.as_ref(), &self.config, tl_config, id).await?;
-        init_connection(&client, &self.config).await?;
-
-        if let Some(authorization) = authorization {
-            let tl::enums::auth::ExportedAuthorization::ExportedAuthorization(authorization) = authorization;
-
-            client.call(tl::functions::auth::ImportAuthorization {
-                id: authorization.id,
-                bytes: authorization.bytes,
-            }.into()).await?;
+            let auth;
+            (*client, auth) = connect_new::<T>(&self.config, Some(dc_id)).await?;
+            self.session.set_auth(&auth).await?;
         }
 
         Ok(())
     }
 }
 
-async fn new_connect<T, S>(session: &S, config: &Config, tl_config: tl::enums::Config, dc_id: i32)
-    -> Result<EncryptedClient, Error>
+async fn connect_new<T>(config: &Config, dc_id: Option<i32>)
+    -> Result<(EncryptedClient, Auth), Error>
 where
     T: Transport + Send + 'static,
-    S: Session,
 {
-    let dc = select_dc(tl_config, dc_id, config.prod_dc);
+    let dc = get_dc::<T>(config, dc_id).await?;
     let (client, auth_key) = fresh_connect::<T>(dc.clone(), config).await?;
-    session.set_auth(Auth {
+    init_connection(&client, config).await?;
+
+    let auth = Auth {
         dc_id: dc.id,
         dc_host: dc.host,
         dc_port: dc.port,
         auth_key,
-    }).await?;
+    };
+    Ok((client, auth))
+}
+
+async fn connect_auth<T>(config: &Config, auth: Auth) -> Result<EncryptedClient, Error>
+where
+    T: Transport + Send + 'static,
+{
+    let dc = Datacenter {
+        id: auth.dc_id,
+        prod: config.prod_dc,
+        host: auth.dc_host,
+        port: auth.dc_port,
+        pubkey: get_public_key(config.prod_dc),
+    };
+
+    let client = authed_connect::<T>(dc, auth.auth_key, config).await?;
+    init_connection(&client, config).await?;
+
     Ok(client)
+}
+
+async fn get_dc<T>(config: &Config, dc_id: Option<i32>) -> Result<Datacenter, Error>
+where
+    T: Transport + Send + 'static,
+{
+    let dc = get_default_dc(config.prod_dc);
+    let (client, _) = fresh_connect::<T>(dc, config).await?;
+    let tl_config = init_connection(&client, config).await?;
+
+    let dc_id = match dc_id {
+        Some(dc_id) => dc_id,
+        None => {
+            let nearest = client.call(tl::functions::help::GetNearestDc {}.into()).await?;
+            let tl::enums::NearestDc::NearestDc(nearest) = nearest;
+            nearest.nearest_dc
+        }
+    };
+
+    Ok(select_dc(tl_config, dc_id, config.prod_dc))
 }
 
 async fn fresh_connect<T>(dc: Datacenter, config: &Config)
@@ -158,7 +173,7 @@ fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Datacenter {
                     && !option.cdn
                     && option.static_
                     && option.id == id
-            ).then(|| Datacenter {
+            ).then_some(Datacenter {
                 id: option.id,
                 prod,
                 host: option.ip_address,

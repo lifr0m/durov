@@ -82,7 +82,7 @@ impl Session for Telethon {
         Ok(auth)
     }
 
-    async fn set_auth(&self, auth: Auth) -> Result<(), Error> {
+    async fn set_auth(&self, auth: &Auth) -> Result<(), Error> {
         let mut transaction = self.pool.begin().await?;
 
         sqlx::query("DELETE FROM sessions")
@@ -90,7 +90,7 @@ impl Session for Telethon {
 
         sqlx::query("INSERT INTO sessions VALUES (?, ?, ?, ?, NULL)")
             .bind(auth.dc_id)
-            .bind(auth.dc_host)
+            .bind(&auth.dc_host)
             .bind(auth.dc_port)
             .bind(&auth.auth_key[..])
             .execute(&mut *transaction).await?;
@@ -119,7 +119,7 @@ impl Session for Telethon {
         Ok(state_list)
     }
 
-    async fn set_state(&self, id: i64, state: tl::types::updates::State) -> Result<(), Error> {
+    async fn set_state(&self, id: i64, state: &tl::types::updates::State) -> Result<(), Error> {
         let mut transaction = self.pool.begin().await?;
 
         sqlx::query("DELETE FROM update_state WHERE id = ?")

@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Datacenter {
     pub id: i32,
     pub prod: bool,
