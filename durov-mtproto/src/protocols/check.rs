@@ -1,13 +1,14 @@
 use crate::protocols::time::{get_now, parse_msg_id};
 use crate::protocols::Error;
+use durov_tl_types::Identify;
 use std::collections::BTreeSet;
 
 const MSG_ID_HISTORY_SIZE: usize = 4 * (1 + 1024);
 
 const SKIP_TIME_CHECK: &[i32] = &[
-    0x9ec20908_u32 as i32, // new_session_created
-    0xa7eff811_u32 as i32, // bad_msg_notification
-    0xedab447b_u32 as i32, // bad_server_salt
+    durov_tl_types::schemas::mtproto::types::NewSessionCreated::ID,
+    durov_tl_types::schemas::mtproto::types::BadMsgNotification::ID,
+    durov_tl_types::schemas::mtproto::types::BadServerSalt::ID,
 ];
 
 pub fn check_auth_key_id(auth_key_id: i64, packet_auth_key_id: i64) -> Result<(), Error> {

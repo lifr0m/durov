@@ -2,7 +2,7 @@ pub mod plain;
 pub mod encrypted;
 pub mod time;
 mod constants;
-mod checkers;
+mod check;
 mod serde;
 
 use durov_tl_types::deserialize;

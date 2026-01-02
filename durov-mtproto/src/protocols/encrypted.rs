@@ -2,7 +2,7 @@ pub mod object;
 
 use crate::crypto;
 use crate::log::debug_bytes;
-use crate::protocols::checkers::{check_auth_key_id, check_msg_id, check_msg_len};
+use crate::protocols::check::{check_auth_key_id, check_msg_id, check_msg_len};
 use crate::protocols::constants::*;
 use crate::protocols::plain::Plain;
 use crate::protocols::serde::serialize_len_first;
@@ -10,15 +10,20 @@ use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::cursor::{Cursor, Seek};
-use durov_tl_types::deserialize;
 use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
+use durov_tl_types::{deserialize, Identify};
 use flate2::bufread::{GzDecoder, GzEncoder};
 use flate2::Compression;
 use object::{DeserializeObject, InObject, Object, OutObject};
 use std::collections::{BTreeSet, HashMap};
 use std::io::Read;
+
+const SKIP_GZIP: &[i32] = &[
+    durov_tl_types::schemas::api::functions::upload::SaveFilePart::ID,
+    durov_tl_types::schemas::api::functions::upload::SaveBigFilePart::ID,
+];
 
 pub struct RpcResult {
     pub req_msg_id: i64,
@@ -152,21 +157,33 @@ impl Encrypted {
         let content = durov_tl_types::schemas::api::ALL_IDS.contains(&object.id);
         self.next_msg_seq(content).serialize(buf);
 
-        if self.use_gzip && content {
-            serialize_len_first(buf, |buf| {
-                GZIP_PACKED_ID.serialize(buf);
-                let mut data = Buffer::new();
-                object.body.serialize(&mut data);
-                let level = Compression::default();
-                let mut encoder = GzEncoder::new(&*data, level);
-                let mut packed_data = Vec::new();
-                encoder.read_to_end(&mut packed_data)
-                    .unwrap();
-                packed_data.serialize(buf);
-            });
-        } else {
-            serialize_len_first(buf, |buf| object.body.serialize(buf));
-        }
+        serialize_len_first(buf, |buf| {
+            if self.use_gzip && content && !SKIP_GZIP.contains(&object.id) {
+                let mut serialized = Buffer::new();
+                object.body.serialize(&mut serialized);
+
+                if serialized.len() > 255 {
+                    let mut compressed = Buffer::new();
+                    GZIP_PACKED_ID.serialize(&mut compressed);
+                    let level = Compression::default();
+                    let mut encoder = GzEncoder::new(&*serialized, level);
+                    let mut packed_data = Vec::new();
+                    encoder.read_to_end(&mut packed_data)
+                        .unwrap();
+                    packed_data.serialize(&mut compressed);
+
+                    if compressed.len() < serialized.len() {
+                        buf.extend_back(&compressed);
+                    } else {
+                        buf.extend_back(&serialized);
+                    }
+                } else {
+                    buf.extend_back(&serialized);
+                }
+            } else {
+                object.body.serialize(buf);
+            }
+        });
 
         msg_id
     }

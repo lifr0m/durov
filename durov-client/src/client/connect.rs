@@ -70,6 +70,7 @@ where
     T: Transport + Send + 'static,
 {
     let dc = get_dc::<T>(config, dc_id).await?;
+
     let (client, auth_key) = fresh_connect::<T>(dc.clone(), config).await?;
     init_connection(&client, config).await?;
 
