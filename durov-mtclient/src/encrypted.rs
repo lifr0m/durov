@@ -54,11 +54,8 @@ impl EncryptedClient {
         let (tx, rx) = oneshot::channel();
 
         let call = CallData {
+            body: InObject::new(func),
             tx,
-            body: InObject {
-                id: F::ID,
-                body: func,
-            },
             deserialize: deserialize_object::<F::Result>,
         };
         if self.call_tx.send(call).is_err() {

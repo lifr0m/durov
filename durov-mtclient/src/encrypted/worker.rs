@@ -158,10 +158,8 @@ impl<T: Transport> Worker<T> {
             let salt = self.salts.pop();
             self.protocol.set_salt(salt);
         } else {
-            let object = tl::functions::GetFutureSalts {
-                num: 4,
-            };
-            let object = InObject::new(object);
+            let object = tl::functions::GetFutureSalts { num: 4 };
+            let object = InObject::new(Arc::new(object));
             self.enqueue_objects(&[object]);
             self.salts.asked = get_now();
         }

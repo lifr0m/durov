@@ -14,13 +14,13 @@ pub struct InObject {
 }
 
 impl InObject {
-    pub fn new<T>(body: T) -> Self
+    pub fn new<T>(body: Arc<T>) -> Self
     where
         T: Identify + Serialize + Send + Sync + 'static,
     {
         Self {
             id: T::ID,
-            body: Arc::new(body),
+            body,
         }
     }
 }
