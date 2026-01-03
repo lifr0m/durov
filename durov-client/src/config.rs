@@ -12,6 +12,7 @@ pub struct Config {
     pub params: Option<tl::enums::JsonValue>,
     pub prod_dc: bool,
     pub use_compression: bool,
+    pub updates: bool,
     pub catch_up: bool,
 }
 
@@ -29,6 +30,7 @@ impl Config {
             params: None,
             prod_dc: true,
             use_compression: true,
+            updates: false,
             catch_up: false,
         }
     }

@@ -74,7 +74,6 @@ impl EncryptedClient {
         self.process_rpc_response::<F>(object)
     }
 
-    // todo: what if we dont listen to updates and receiver just keeps growing
     pub async fn next(&self) -> Result<api_tl::enums::Updates, Error> {
         self.updates_rx.try_lock()
             .expect("you can wait for update only from one task")
