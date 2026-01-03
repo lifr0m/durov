@@ -36,29 +36,16 @@ where
         })
     }
 
-    pub async fn switch_dc(&self, dc_id: i32, migrate: bool) -> Result<(), Error> {
+    pub async fn switch_dc(&self, dc_id: i32) -> Result<(), Error> {
         // If client is already locked for write it means switching is happening right now.
         // We need to just wait until it's finished. It happens by locking client for read.
         let Ok(mut client) = self.client.try_write() else {
             return Ok(());
         };
 
-        if migrate {
-            let dc = get_dc::<T>(&self.config, Some(dc_id)).await?;
-
-            let mut auth = self.session.get_auth().await?
-                .expect("auth should be saved when connecting");
-            auth.dc_id = dc.id;
-            auth.dc_host = dc.host;
-            auth.dc_port = dc.port;
-            self.session.set_auth(&auth).await?;
-
-            *client = connect_auth::<T>(&self.config, auth).await?;
-        } else {
-            let auth;
-            (*client, auth) = connect_new::<T>(&self.config, Some(dc_id)).await?;
-            self.session.set_auth(&auth).await?;
-        }
+        let auth;
+        (*client, auth) = connect_new::<T>(&self.config, Some(dc_id)).await?;
+        self.session.set_auth(&auth).await?;
 
         Ok(())
     }

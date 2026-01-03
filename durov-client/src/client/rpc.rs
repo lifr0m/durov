@@ -39,10 +39,6 @@ where
             {
                 Ok(result) => break Ok(result),
                 Err(Error::MtClient(durov_mtclient::Error::Resend)) => (),
-                Err(err) if err.is(303, "USER_MIGRATE") => {
-                    let dc_id = err.parse("USER_MIGRATE_%d", 0)?;
-                    self.switch_dc(dc_id, true).await?;
-                }
                 Err(err) => break Err(err),
             }
         }
