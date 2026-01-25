@@ -2,12 +2,14 @@ pub mod telethon;
 
 use crate::{tl, Error};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::time::SystemTime;
+use tl::types::updates::State;
 
-#[derive(Copy, Clone)]
 pub struct Peer {
     pub id: i64,
     pub access_hash: i64,
+    pub username: Option<String>,
 }
 
 pub struct Auth {
@@ -23,17 +25,21 @@ pub trait Session: Sized {
 
     async fn init(&self) -> Result<(), Error>;
 
-    async fn get_peer(&self, username: &str) -> Result<Option<Peer>, Error>;
+    async fn get_peer_by_id(&self, id: i64) -> Result<Option<Peer>, Error>;
 
-    async fn set_peer(&self, peer: Peer, username: &str) -> Result<(), Error>;
+    async fn get_peer_by_username(&self, username: &str) -> Result<Option<Peer>, Error>;
+
+    async fn set_peers<I>(&self, iter: I) -> Result<(), Error>
+    where
+        I: Iterator<Item = Peer> + Send;
 
     async fn get_auth(&self) -> Result<Option<Auth>, Error>;
 
     async fn set_auth(&self, auth: &Auth) -> Result<(), Error>;
 
-    async fn list_states(&self) -> Result<Vec<tl::types::updates::State>, Error>;
+    async fn get_states(&self) -> Result<HashMap<i64, State>, Error>;
 
-    async fn set_state(&self, id: i64, state: &tl::types::updates::State) -> Result<(), Error>;
+    async fn set_states(&self, map: &HashMap<i64, State>) -> Result<(), Error>;
 }
 
 pub fn get_date() -> i32 {

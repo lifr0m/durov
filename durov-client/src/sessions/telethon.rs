@@ -3,7 +3,9 @@ use crate::{tl, Error};
 use async_trait::async_trait;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{Row, SqlitePool};
+use std::collections::HashMap;
 use std::str::FromStr;
+use tl::types::updates::State;
 
 const VERSION: i32 = 7;
 
@@ -29,35 +31,53 @@ impl Session for Telethon {
         Ok(())
     }
 
-    async fn get_peer(&self, username: &str) -> Result<Option<Peer>, Error> {
-        let row = sqlx::query("SELECT * FROM entities WHERE username = ?")
-            .bind(username)
+    async fn get_peer_by_id(&self, id: i64) -> Result<Option<Peer>, Error> {
+        let row = sqlx::query("SELECT * FROM entities WHERE id = ?")
+            .bind(id)
             .fetch_optional(&self.pool).await?;
 
-        let peer = row.map(|row| {
-            Peer {
-                id: row.get("id"),
-                access_hash: row.get("access_hash"),
-            }
+        let peer = row.map(|row| Peer {
+            id: row.get("id"),
+            access_hash: row.get("access_hash"),
+            username: row.get("username"),
         });
 
         Ok(peer)
     }
 
-    async fn set_peer(&self, peer: Peer, username: &str) -> Result<(), Error> {
+    async fn get_peer_by_username(&self, username: &str) -> Result<Option<Peer>, Error> {
+        let row = sqlx::query("SELECT * FROM entities WHERE username = ?")
+            .bind(username)
+            .fetch_optional(&self.pool).await?;
+
+        let peer = row.map(|row| Peer {
+            id: row.get("id"),
+            access_hash: row.get("access_hash"),
+            username: row.get("username"),
+        });
+
+        Ok(peer)
+    }
+
+    async fn set_peers<I>(&self, iter: I) -> Result<(), Error>
+    where
+        I: Iterator<Item = Peer> + Send,
+    {
         let mut transaction = self.pool.begin().await?;
 
-        sqlx::query("DELETE FROM entities WHERE id = ? OR username = ?")
-            .bind(peer.id)
-            .bind(username)
-            .execute(&mut *transaction).await?;
+        for peer in iter {
+            sqlx::query("DELETE FROM entities WHERE id = ? OR username = ?")
+                .bind(peer.id)
+                .bind(&peer.username)
+                .execute(&mut *transaction).await?;
 
-        sqlx::query("INSERT INTO entities VALUES (?, ?, ?, NULL, NULL, ?)")
-            .bind(peer.id)
-            .bind(peer.access_hash)
-            .bind(username)
-            .bind(get_date())
-            .execute(&mut *transaction).await?;
+            sqlx::query("INSERT INTO entities VALUES (?, ?, ?, NULL, NULL, ?)")
+                .bind(peer.id)
+                .bind(peer.access_hash)
+                .bind(&peer.username)
+                .bind(get_date())
+                .execute(&mut *transaction).await?;
+        }
 
         transaction.commit().await?;
 
@@ -68,15 +88,13 @@ impl Session for Telethon {
         let row = sqlx::query("SELECT * FROM sessions")
             .fetch_optional(&self.pool).await?;
 
-        let auth = row.map(|row| {
-            Auth {
-                dc_id: row.get("dc_id"),
-                dc_host: row.get("server_address"),
-                dc_port: row.get("port"),
-                auth_key: row.get::<&[u8], _>("auth_key")
-                    .try_into()
-                    .unwrap(),
-            }
+        let auth = row.map(|row| Auth {
+            dc_id: row.get("dc_id"),
+            dc_host: row.get("server_address"),
+            dc_port: row.get("port"),
+            auth_key: row.get::<&[u8], _>("auth_key")
+                .try_into()
+                .unwrap(),
         });
 
         Ok(auth)
@@ -100,39 +118,41 @@ impl Session for Telethon {
         Ok(())
     }
 
-    async fn list_states(&self) -> Result<Vec<tl::types::updates::State>, Error> {
+    async fn get_states(&self) -> Result<HashMap<i64, State>, Error> {
         let row_list = sqlx::query("SELECT * FROM update_state")
             .fetch_all(&self.pool).await?;
 
-        let state_list = row_list.into_iter()
-            .map(|row| {
-                tl::types::updates::State {
+        let map = row_list.into_iter()
+            .map(|row| (
+                row.get("id"),
+                State {
                     pts: row.get("pts"),
                     qts: row.get("qts"),
                     date: row.get("date"),
                     seq: row.get("seq"),
                     unread_count: 0,
-                }
-            })
+                },
+            ))
             .collect();
 
-        Ok(state_list)
+        Ok(map)
     }
 
-    async fn set_state(&self, id: i64, state: &tl::types::updates::State) -> Result<(), Error> {
+    async fn set_states(&self, map: &HashMap<i64, State>) -> Result<(), Error> {
         let mut transaction = self.pool.begin().await?;
 
-        sqlx::query("DELETE FROM update_state WHERE id = ?")
-            .bind(id)
+        sqlx::query("DELETE FROM update_state")
             .execute(&mut *transaction).await?;
 
-        sqlx::query("INSERT INTO update_state VALUES (?, ?, ?, ?, ?)")
-            .bind(id)
-            .bind(state.pts)
-            .bind(state.qts)
-            .bind(state.date)
-            .bind(state.seq)
-            .execute(&mut *transaction).await?;
+        for (&id, state) in map {
+            sqlx::query("INSERT INTO update_state VALUES (?, ?, ?, ?, ?)")
+                .bind(id)
+                .bind(state.pts)
+                .bind(state.qts)
+                .bind(state.date)
+                .bind(state.seq)
+                .execute(&mut *transaction).await?;
+        }
 
         transaction.commit().await?;
 
