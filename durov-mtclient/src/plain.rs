@@ -19,7 +19,10 @@ pub struct PlainClient<T> {
     protocol: Plain,
 }
 
-impl<T: Transport> PlainClient<T> {
+impl<T: Transport> PlainClient<T>
+where
+    T: Send + 'static,
+{
     pub async fn connect(config: MtConfig) -> Result<Self, Error> {
         let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
         let transport = T::default();
@@ -57,13 +60,8 @@ impl<T: Transport> PlainClient<T> {
             }
         }
     }
-}
 
-impl<T: Transport> PlainClient<T>
-where
-    T: Send + 'static,
-{
-    pub async fn auth(mut self) -> Result<(EncryptedClient, [u8; 256]), Error> {
+    pub async fn auth(mut self) -> Result<(EncryptedClient<T>, [u8; 256]), Error> {
         let mut attempt = 0;
         let (step1, step2, step3) = loop {
             attempt += 1;
@@ -129,7 +127,7 @@ where
         }
     }
 
-    fn upgrade(self, auth_key: [u8; 256], salt: i64) -> EncryptedClient {
+    fn upgrade(self, auth_key: [u8; 256], salt: i64) -> EncryptedClient<T> {
         let protocol = Encrypted::from_plain(
             self.protocol,
             auth_key,

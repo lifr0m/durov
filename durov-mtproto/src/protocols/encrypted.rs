@@ -131,11 +131,9 @@ impl Encrypted {
         MSG_CONTAINER_ID.serialize(buf);
         (objects.len() as i32).serialize(buf);
 
-        let mut message_ids = Vec::new();
-        for obj in objects {
-            let msg_id = self.pack_object(buf, obj);
-            message_ids.push(msg_id);
-        }
+        let mut message_ids = objects.iter()
+            .map(|obj| self.pack_object(buf, obj))
+            .collect::<Vec<_>>();
 
         let len = buf.len() as i32;
         buf.extend_front(&len.to_le_bytes());

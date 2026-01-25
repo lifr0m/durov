@@ -30,7 +30,7 @@ impl FutureSalts {
             .salt
     }
 
-    pub async fn select(&mut self) {
+    pub async fn wait(&mut self) {
         let deadline = if self.can_get() {
             self.list[0].since
         } else {
@@ -39,7 +39,7 @@ impl FutureSalts {
         let duration = deadline - get_now();
         let duration = if duration < 0.0 { 0.0 } else { duration };
         let duration = Duration::from_secs_f64(duration);
-        time::sleep(duration).await
+        time::sleep(duration).await;
     }
 
     pub fn can_get(&self) -> bool {

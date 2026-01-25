@@ -14,32 +14,34 @@ use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use worker::{CallData, Worker};
 
-pub struct EncryptedClient {
+pub struct EncryptedClient<T> {
     call_tx: mpsc::UnboundedSender<CallData>,
     updates_rx: Mutex<mpsc::UnboundedReceiver<api_tl::enums::Updates>>,
+    transport: PhantomData<T>,
 }
 
-impl EncryptedClient {
-    pub fn new<T>(stream: TcpStream, transport: T, protocol: Encrypted) -> Self
-    where
-        T: Transport + Send + 'static,
-    {
+impl<T: Transport> EncryptedClient<T>
+where
+    T: Send + 'static,
+{
+    pub fn new(stream: TcpStream, transport: T, protocol: Encrypted) -> Self {
         let (call_tx, call_rx) = mpsc::unbounded_channel();
         let (updates_tx, updates_rx) = mpsc::unbounded_channel();
         tokio::spawn(Worker::new(stream, transport, protocol, call_rx, updates_tx).run());
-        let updates_rx = Mutex::new(updates_rx);
-        Self { call_tx, updates_rx }
+        Self {
+            call_tx,
+            updates_rx: Mutex::new(updates_rx),
+            transport: PhantomData,
+        }
     }
 
-    pub async fn connect<T>(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error>
-    where
-        T: Transport + Send + 'static,
-    {
+    pub async fn connect(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error> {
         let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
         let transport = T::default();
         let protocol = Encrypted::new(auth_key, config.use_gzip);
@@ -62,34 +64,31 @@ impl EncryptedClient {
             return Err(Error::Connection);
         }
 
-        let Ok(object) = rx.await else {
-            return Err(Error::Connection);
-        };
-        let Some(object) = object else {
-            return Err(Error::Resend);
-        };
-        self.process_rpc_response::<F>(object)
+        let object = rx.await
+            .map_err(|_| Error::Connection)?
+            .ok_or(Error::Resend)?;
+        self.process_rpc_response(object)
     }
 
     pub async fn next(&self) -> Result<api_tl::enums::Updates, Error> {
         self.updates_rx.try_lock()
-            .expect("you can wait for update only from one task")
+            .expect("you can listen for updates only from one task")
             .recv()
             .await
             .ok_or(Error::Connection)
     }
 
-    fn process_rpc_response<F: Call>(&self, object: Object) -> Result<F::Result, Error>
+    fn process_rpc_response<R>(&self, object: Object) -> Result<R, Error>
     where
-        F::Result: 'static,
+        R: 'static,
     {
-        match object.downcast::<F::Result>() {
+        match object.downcast::<R>() {
             Ok(result) => Ok(*result),
-            Err(object) => self.process_rpc_error::<F>(object),
+            Err(object) => self.process_rpc_error(object),
         }
     }
 
-    fn process_rpc_error<F: Call>(&self, object: Object) -> Result<F::Result, Error> {
+    fn process_rpc_error<R>(&self, object: Object) -> Result<R, Error> {
         match object.downcast::<tl::enums::RpcError>() {
             Ok(rpc) => {
                 let tl::enums::RpcError::RpcError(rpc) = *rpc;

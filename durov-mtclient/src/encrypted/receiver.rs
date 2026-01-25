@@ -18,7 +18,7 @@ impl Receiver {
         }
     }
 
-    pub async fn select(&mut self) -> io::Result<usize> {
+    pub async fn recv(&mut self) -> io::Result<usize> {
         let slice = &mut self.buf[self.pos..];
         self.reader.read(slice).await
     }

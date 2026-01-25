@@ -19,7 +19,7 @@ impl Sender {
         }
     }
 
-    pub async fn select(&mut self) -> io::Result<usize> {
+    pub async fn send(&mut self) -> io::Result<usize> {
         let buf = &self.bufs[0];
         let slice = &buf[self.pos..];
         self.writer.write(slice).await

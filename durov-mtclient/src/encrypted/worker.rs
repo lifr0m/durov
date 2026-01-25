@@ -53,7 +53,7 @@ pub struct Worker<T> {
     synced_salt: bool,
 }
 
-impl<T> Worker<T> {
+impl<T: Transport> Worker<T> {
     pub fn new(
         stream: TcpStream,
         transport: T,
@@ -77,9 +77,7 @@ impl<T> Worker<T> {
             synced_salt: false,
         }
     }
-}
 
-impl<T: Transport> Worker<T> {
     pub async fn run(mut self) {
         loop {
             if let Err(err) = self.step().await {
@@ -94,19 +92,19 @@ impl<T: Transport> Worker<T> {
 
     async fn step(&mut self) -> Result<(), Error> {
         tokio::select! {
-            n = self.receiver.select() => {
+            n = self.receiver.recv() => {
                 self.on_recv(n?)
             }
-            n = self.sender.select(), if self.sender.condition() => {
+            n = self.sender.send(), if self.sender.condition() => {
                 self.on_send(n?)
             }
             call = self.call_rx.recv(), if self.protocol.is_ready() => {
                 self.on_call(call.ok_or(Error::Stop)?)
             }
-            _ = self.ack.select(), if self.ack.condition() => {
+            _ = self.ack.wait(), if self.ack.condition() => {
                 self.on_ack_timeout()
             }
-            _ = self.salts.select() => {
+            _ = self.salts.wait() => {
                 self.on_future_salt()
             }
         }

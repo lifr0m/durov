@@ -8,7 +8,6 @@ use durov_mtclient::encrypted::EncryptedClient;
 use durov_mtclient::plain::PlainClient;
 use durov_mtproto::datacenter::Datacenter;
 use durov_mtproto::transports::Transport;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -32,7 +31,6 @@ where
             config: Arc::new(config),
             session: Arc::new(session),
             client: Arc::new(RwLock::new(client)),
-            transport: PhantomData,
         })
     }
 
@@ -48,7 +46,7 @@ where
 }
 
 async fn connect_new<T>(config: &Config, dc_id: Option<i32>)
-    -> Result<(EncryptedClient, Auth), Error>
+    -> Result<(EncryptedClient<T>, Auth), Error>
 where
     T: Transport + Send + 'static,
 {
@@ -66,7 +64,7 @@ where
     Ok((client, auth))
 }
 
-async fn connect_auth<T>(config: &Config, auth: Auth) -> Result<EncryptedClient, Error>
+async fn connect_auth<T>(config: &Config, auth: Auth) -> Result<EncryptedClient<T>, Error>
 where
     T: Transport + Send + 'static,
 {
@@ -101,11 +99,11 @@ where
         }
     };
 
-    Ok(select_dc(tl_config, dc_id, config.prod_dc))
+    Ok(select_dc(tl_config, dc_id, config.prod_dc).expect("can't find suitable dc"))
 }
 
 async fn fresh_connect<T>(dc: Datacenter, config: &Config)
-    -> Result<(EncryptedClient, [u8; 256]), Error>
+    -> Result<(EncryptedClient<T>, [u8; 256]), Error>
 where
     T: Transport + Send + 'static,
 {
@@ -115,16 +113,18 @@ where
 }
 
 async fn authed_connect<T>(dc: Datacenter, auth_key: [u8; 256], config: &Config)
-    -> Result<EncryptedClient, Error>
+    -> Result<EncryptedClient<T>, Error>
 where
     T: Transport + Send + 'static,
 {
     let mt_config = MtConfig { dc, use_gzip: config.use_compression };
-    Ok(EncryptedClient::connect::<T>(mt_config, auth_key).await?)
+    Ok(EncryptedClient::connect(mt_config, auth_key).await?)
 }
 
-async fn init_connection(client: &EncryptedClient, config: &Config)
+async fn init_connection<T>(client: &EncryptedClient<T>, config: &Config)
     -> Result<tl::enums::Config, Error>
+where
+    T: Transport + Send + 'static,
 {
     Ok(client.call(tl::functions::InvokeWithLayer {
         layer: tl::LAYER,
@@ -143,7 +143,7 @@ async fn init_connection(client: &EncryptedClient, config: &Config)
     }.into()).await?)
 }
 
-fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Datacenter {
+fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Option<Datacenter> {
     let tl::enums::Config::Config(config) = config;
 
     config.dc_options.into_iter()
@@ -157,7 +157,7 @@ fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Datacenter {
                     && !option.cdn
                     && option.static_
                     && option.id == id
-            ).then_some(Datacenter {
+            ).then(|| Datacenter {
                 id: option.id,
                 prod,
                 host: option.ip_address,
@@ -165,5 +165,4 @@ fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Datacenter {
                 pubkey: get_public_key(prod),
             })
         })
-        .expect("cant find suitable dc")
 }
