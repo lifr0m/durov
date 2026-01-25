@@ -1,3 +1,4 @@
+use crate::client::updates::updater::Checkpoint;
 use crate::tl;
 
 pub struct Config {
@@ -14,6 +15,7 @@ pub struct Config {
     pub use_compression: bool,
     pub updates: bool,
     pub catch_up: bool,
+    pub db_checkpoints: Vec<Checkpoint>,
 }
 
 impl Config {
@@ -32,6 +34,11 @@ impl Config {
             use_compression: true,
             updates: false,
             catch_up: false,
+            db_checkpoints: vec![
+                Checkpoint::new(3600, 1),
+                Checkpoint::new(300, 100),
+                Checkpoint::new(60, 10_000),
+            ],
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::client::updates::updater::Updater;
 use crate::client::Client;
 use crate::config::Config;
 use crate::datacenters::{get_default_dc, get_public_key};
@@ -9,7 +10,8 @@ use durov_mtclient::plain::PlainClient;
 use durov_mtproto::datacenter::Datacenter;
 use durov_mtproto::transports::Transport;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Duration;
+use tokio::sync::{Mutex, RwLock};
 
 impl<T: Transport, S: Session> Client<T, S>
 where
@@ -27,10 +29,18 @@ where
             client
         };
 
+        let session = Arc::new(session);
+
+        let states = session.get_states().await?;
+        let interval = Duration::from_millis(100);
+        let checkpoints = config.db_checkpoints.clone();
+        let updater = Updater::new(Arc::clone(&session), states, interval, checkpoints);
+
         Ok(Self {
             config: Arc::new(config),
-            session: Arc::new(session),
+            session,
             client: Arc::new(RwLock::new(client)),
+            updater: Arc::new(Mutex::new(updater)),
         })
     }
 
