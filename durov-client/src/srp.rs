@@ -49,7 +49,7 @@ pub fn compute_srp_check(pwd: tl::enums::account::Password, password: &str)
     let g_b = deserialize_bigint(&g_b, 2048)?;
 
     let a = random_bigint(2048);
-    let g_a = pow_mod(&g, &a, &p);
+    let g_a = g.pow_mod(&a, &p);
 
     let k = H([
         &serialize_bigint_padded(&p),
@@ -66,11 +66,11 @@ pub fn compute_srp_check(pwd: tl::enums::account::Password, password: &str)
     let x = PH2(password.as_bytes(), salt1, salt2);
     let x = deserialize_bigint(&x, 2048)?;
 
-    let v = pow_mod(&g, &x, &p);
+    let v = g.pow_mod(&x, &p);
     let k_v = k.mul_mod(&v, p.as_nz_ref());
 
     let t = g_b.sub_mod(&k_v, p.as_nz_ref());
-    let s_a = pow_mod(&t, &(a + u * x), &p);
+    let s_a = t.pow_mod(&(a + u * x), &p);
 
     let k_a = H([
         &serialize_bigint_padded(&s_a),

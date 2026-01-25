@@ -4,4 +4,4 @@ edition = "2024"
 
 [dependencies]
 durov-tl-parser = { path = "../durov-tl-parser" }
-convert_case = "0.9"
+convert_case = "0.10"

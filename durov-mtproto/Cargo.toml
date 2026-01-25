@@ -6,10 +6,10 @@ edition = "2024"
 thiserror = "2"
 durov-tl-types = { path = "../durov-tl-types" }
 durov-crypto = { path = "../durov-crypto" }
-crypto-bigint = { version = "0.7.0-rc.10", features = ["alloc"] }
-crypto-primes = "0.7.0-pre.4"
-rand = "0.10.0-rc.5"
-rsa = { version = "0.10.0-rc.10", features = ["hazmat"] }
+crypto-bigint = { version = "=0.7.0-rc.21", features = ["alloc", "getrandom"] }
+crypto-primes = "=0.7.0-pre.7"
+rand = "=0.10.0-rc.7"
+rsa = { version = "=0.10.0-rc.13", features = ["hazmat"] }
 log = "0.4"
 flate2 = { version = "1", features = ["zlib-rs"] }
 

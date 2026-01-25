@@ -1,7 +1,6 @@
 mod ciphers;
 mod hashes;
 mod logic;
-mod modular;
 mod primes;
 mod utils;
 mod random;
@@ -12,7 +11,6 @@ pub use ciphers::*;
 use crypto_bigint::BoxedUint;
 pub use hashes::*;
 pub use logic::*;
-pub use modular::*;
 pub use primes::*;
 pub use random::*;
 pub use safety::*;

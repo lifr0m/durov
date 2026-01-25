@@ -4,7 +4,7 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2"
-crypto-bigint = "0.7.0-rc.10"
+crypto-bigint = "=0.7.0-rc.21"
 phf = { version = "0.13", features = ["macros"] }
 derive_more = { version = "2", features = ["from", "try_into"] }
 

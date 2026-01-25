@@ -77,7 +77,7 @@ pub struct Step5 {
 }
 
 pub fn step1() -> Step1 {
-    let nonce = I128::random(&mut rand::rng());
+    let nonce = I128::random();
     let req = tl::functions::ReqPqMulti { nonce };
     Step1 { req, nonce }
 }
@@ -102,7 +102,7 @@ pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step
     crypto::ensure_pq_composite(pq)?;
     let (p, q) = crypto::factorize_pq(pq);
 
-    let new_nonce = I256::random(&mut rand::rng());
+    let new_nonce = I256::random();
 
     let data = tl::enums::PQInnerData::PQInnerDataDc(
         tl::types::PQInnerDataDc {
@@ -186,7 +186,7 @@ pub fn step4(
     prev_auth_key_aux_id: Option<i64>,
 ) -> Result<Step4, Error> {
     let b = crypto::random_bigint(2048);
-    let g_b = crypto::pow_mod(g, &b, p);
+    let g_b = g.pow_mod(&b, p);
 
     crypto::ensure_dh_extra_1(p, &g_b)?;
     crypto::ensure_dh_extra_2(p, &g_b)?;
@@ -204,7 +204,7 @@ pub fn step4(
         ),
     };
 
-    let auth_key = crypto::pow_mod(g_a, &b, p);
+    let auth_key = g_a.pow_mod(&b, p);
     let auth_key = crypto::serialize_bigint_padded(&auth_key);
     let auth_key = crypto::make_arr([&auth_key]);
 
@@ -285,7 +285,7 @@ fn ensure_new_nonce_hash_equal(
     };
 
     let hash = crypto::compute_new_nonce_hash(nonce, byte, auth_key_aux_id);
-    let res_hash = res_hash.as_uint().to_le_bytes();
+    let res_hash = res_hash.as_uint().to_le_bytes().into();
 
     if hash == res_hash {
         Ok(())

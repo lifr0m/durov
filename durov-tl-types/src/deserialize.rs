@@ -156,7 +156,7 @@ impl Deserialize for I128 {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let mut val = [0; 16];
         src.read(&mut val)?;
-        Ok(*U128::from_le_bytes(val).as_int())
+        Ok(*U128::from_le_bytes(val.into()).as_int())
     }
 }
 
@@ -164,7 +164,7 @@ impl Deserialize for I256 {
     fn deserialize(src: &mut Cursor) -> Result<Self, Error> {
         let mut val = [0; 32];
         src.read(&mut val)?;
-        Ok(*U256::from_le_bytes(val).as_int())
+        Ok(*U256::from_le_bytes(val.into()).as_int())
     }
 }
 
