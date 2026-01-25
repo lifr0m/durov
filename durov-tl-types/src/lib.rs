@@ -14,5 +14,5 @@ pub trait Call {
     type Result;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BareVec<T>(pub Vec<T>);

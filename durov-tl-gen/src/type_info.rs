@@ -10,7 +10,7 @@ pub struct Type<'a> {
 
 impl<'a> Write for Type<'a> {
     fn write(&self, writer: &mut Writer, context: &mut Context) {
-        writer.indent_write("#[derive(Debug, Clone)]\n");
+        writer.indent_write("#[derive(Debug, Clone, PartialEq)]\n");
         writer.indent_write("#[derive(derive_more::From, derive_more::TryInto)]\n");
         writer.indent_write("pub enum ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
