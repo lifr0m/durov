@@ -37,11 +37,7 @@ where
     }
 
     pub async fn switch_dc(&self, dc_id: i32) -> Result<(), Error> {
-        // If client is already locked for write it means switching is happening right now.
-        // We need to just wait until it's finished. It happens by locking client for read.
-        let Ok(mut client) = self.client.try_write() else {
-            return Ok(());
-        };
+        let mut client = self.client.write().await;
 
         let auth;
         (*client, auth) = connect_new::<T>(&self.config, Some(dc_id)).await?;

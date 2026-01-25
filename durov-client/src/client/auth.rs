@@ -17,6 +17,9 @@ where
                 self.switch_dc(dc_id).await?;
                 self.send_code(phone).await?
             }
+            Err(err) if err.is(303, "NETWORK_MIGRATE") => {
+                unimplemented!("sign up is unsupported");
+            }
             Err(err) => return Err(err),
         };
 
