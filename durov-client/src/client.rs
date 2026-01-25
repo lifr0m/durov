@@ -2,6 +2,7 @@ pub mod auth;
 pub mod connect;
 pub mod rpc;
 pub mod updates;
+pub mod peers;
 
 use crate::client::updates::updater::Updater;
 use crate::config::Config;
