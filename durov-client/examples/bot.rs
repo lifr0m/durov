@@ -20,6 +20,9 @@ async fn main() -> eyre::Result<()> {
 
     let client = Client::connect("bot.session", config).await?;
 
+    // If client is unauthorized:
+    // client.bot_login("ENTER YOUR TOKEN").await?;
+
     // You can use `client.next_unauthorized_updates` to receive updates
     // which happen on unauthorized connections, for example QR login.
 

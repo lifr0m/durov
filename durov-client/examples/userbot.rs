@@ -18,6 +18,9 @@ async fn main() -> eyre::Result<()> {
 
     let client = Client::connect("userbot.session", config).await?;
 
+    // If client is unauthorized:
+    // client.interactive_login("ENTER YOUR PHONE").await?;
+
     let res = client.call(tl::functions::users::GetUsers {
         id: vec![tl::types::InputUserSelf {}.into()],
     }).await?;
