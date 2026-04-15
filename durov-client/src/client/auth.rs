@@ -53,6 +53,20 @@ where
     }
 
     pub async fn bot_login(&self, token: &str) -> Result<(), Error> {
+        match self.import_bot_authorization(token).await {
+            Ok(()) => {}
+            Err(err) if err.is(303, "USER_MIGRATE") => {
+                let dc_id = err.parse("USER_MIGRATE_%d", 0)?;
+                self.switch_dc(dc_id).await?;
+                self.import_bot_authorization(token).await?
+            }
+            Err(err) => return Err(err),
+        }
+
+        Ok(())
+    }
+
+    async fn import_bot_authorization(&self, token: &str) -> Result<(), Error> {
         self.call(tl::functions::auth::ImportBotAuthorization {
             flags: 0,
             api_id: self.config.api_id,

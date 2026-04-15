@@ -17,7 +17,7 @@ use durov_tl_types::{deserialize, Identify};
 use flate2::bufread::{GzDecoder, GzEncoder};
 use flate2::Compression;
 use object::{DeserializeObject, InObject, Object, OutObject};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::io::Read;
 
 const SKIP_GZIP: &[i32] = &[
@@ -86,9 +86,9 @@ impl Encrypted {
     const DECRYPTED: usize = Self::ENCRYPTED + 8 + 8;
     const MESSAGE: usize = Self::DECRYPTED + 8 + 4 + 4;
 
-    pub fn pack(&mut self, buf: &mut Buffer, objects: &[InObject]) -> Vec<i64> {
+    pub fn pack(&mut self, buf: &mut Buffer, objects: &[&InObject]) -> Vec<i64> {
         let message_ids = match objects.len() {
-            1 => self.pack_one_object(buf, &objects[0]),
+            1 => self.pack_one_object(buf, objects[0]),
             _ => self.pack_many_objects(buf, objects),
         };
 
@@ -127,7 +127,7 @@ impl Encrypted {
         vec![msg_id]
     }
 
-    fn pack_many_objects(&mut self, buf: &mut Buffer, objects: &[InObject]) -> Vec<i64> {
+    fn pack_many_objects(&mut self, buf: &mut Buffer, objects: &[&InObject]) -> Vec<i64> {
         MSG_CONTAINER_ID.serialize(buf);
         (objects.len() as i32).serialize(buf);
 
@@ -200,7 +200,7 @@ impl Encrypted {
         &mut self,
         buf: &mut Buffer,
         deserialize_list: &[DeserializeObject],
-        req_deserialize_map: &HashMap<i64, DeserializeObject>,
+        get_deserialize: impl Fn(i64) -> Option<DeserializeObject>,
     ) -> Result<Vec<OutObject>, Error> {
         debug_bytes("protocol [encrypted] (unpack) [encrypted]", buf);
 
@@ -264,14 +264,14 @@ impl Encrypted {
         }
 
         let mut cur = Cursor::new(&buf[Self::DECRYPTED..]);
-        self.unpack_message(&mut cur, deserialize_list, req_deserialize_map)
+        self.unpack_message(&mut cur, deserialize_list, &get_deserialize)
     }
 
     fn unpack_message(
         &mut self,
         src: &mut Cursor,
         deserialize_list: &[DeserializeObject],
-        req_deserialize_map: &HashMap<i64, DeserializeObject>,
+        get_deserialize: &impl Fn(i64) -> Option<DeserializeObject>,
     ) -> Result<Vec<OutObject>, Error> {
         let msg_id = i64::deserialize(src)?;
         let _seq = i32::deserialize(src)?;
@@ -304,7 +304,7 @@ impl Encrypted {
                     let chunk = self.unpack_message(
                         src,
                         deserialize_list,
-                        req_deserialize_map,
+                        get_deserialize,
                     )?;
                     objects.extend(chunk);
                 }
@@ -313,7 +313,7 @@ impl Encrypted {
             RPC_RESULT_ID => {
                 let req_msg_id = i64::deserialize(src)?;
 
-                let Some(&deserialize) = req_deserialize_map.get(&req_msg_id) else {
+                let Some(deserialize) = get_deserialize(req_msg_id) else {
                     log::warn!("received response for unknown request: {req_msg_id}");
                     return Ok(skip_message(src, end));
                 };

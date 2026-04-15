@@ -3,6 +3,7 @@ mod sender;
 mod receiver;
 mod ack;
 mod salt;
+mod complications;
 
 use crate::config::MtConfig;
 use crate::{tcp, Error};
@@ -15,7 +16,6 @@ use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify};
 use std::marker::PhantomData;
-use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use worker::{CallData, Worker};
@@ -30,10 +30,10 @@ impl<T: Transport> EncryptedClient<T>
 where
     T: Send + 'static,
 {
-    pub fn new(stream: TcpStream, transport: T, protocol: Encrypted) -> Self {
+    pub fn new(stream: TcpStream, transport: T, protocol: Encrypted, updates: bool) -> Self {
         let (call_tx, call_rx) = mpsc::unbounded_channel();
         let (updates_tx, updates_rx) = mpsc::unbounded_channel();
-        tokio::spawn(Worker::new(stream, transport, protocol, call_rx, updates_tx).run());
+        tokio::spawn(Worker::new(stream, transport, protocol, call_rx, updates.then_some(updates_tx)).run());
         Self {
             call_tx,
             updates_rx: Mutex::new(updates_rx),
@@ -45,19 +45,19 @@ where
         let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
         let transport = T::default();
         let protocol = Encrypted::new(auth_key, config.use_gzip);
-        Ok(Self::new(stream, transport, protocol))
+        Ok(Self::new(stream, transport, protocol, config.updates))
     }
 
-    pub async fn call<F>(&self, func: Arc<F>) -> Result<F::Result, Error>
+    pub async fn call<F>(&self, func: F) -> Result<F::Result, Error>
     where
-        F: Identify + Call + Serialize + Send + Sync + 'static,
+        F: Identify + Call + Serialize + Send + 'static,
         F::Result: Deserialize + Send,
     {
         let (tx, rx) = oneshot::channel();
 
         let call = CallData {
             body: InObject::new(func),
-            tx,
+            callback: tx,
             deserialize: deserialize_object::<F::Result>,
         };
         if self.call_tx.send(call).is_err() {
@@ -65,8 +65,7 @@ where
         }
 
         let object = rx.await
-            .map_err(|_| Error::Connection)?
-            .ok_or(Error::Resend)?;
+            .map_err(|_| Error::Connection)?;
         self.process_rpc_response(object)
     }
 

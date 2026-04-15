@@ -26,9 +26,6 @@ pub enum Error {
     #[error("connection closed")]
     Connection,
 
-    #[error("resend query")]
-    Resend,
-
     #[error("rpc error: code {code}, message: {message}")]
     RpcError {
         code: i32,

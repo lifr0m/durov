@@ -134,6 +134,6 @@ where
             salt,
             self.config.use_gzip,
         );
-        EncryptedClient::new(self.stream, self.transport, protocol)
+        EncryptedClient::new(self.stream, self.transport, protocol, self.config.updates)
     }
 }

@@ -121,7 +121,7 @@ pub fn parse_schema(input: &str) -> Schema {
                 combinator_type = CombinatorType::Function;
                 continue;
             }
-            _ => (),
+            _ => {}
         }
         let line = line.strip_suffix(";")
             .unwrap();

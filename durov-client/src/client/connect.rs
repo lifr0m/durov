@@ -10,7 +10,6 @@ use durov_mtclient::plain::PlainClient;
 use durov_mtproto::datacenter::Datacenter;
 use durov_mtproto::transports::Transport;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
 
 impl<T: Transport, S: Session> Client<T, S>
@@ -22,25 +21,18 @@ where
         session.init().await?;
 
         let client = if let Some(auth) = session.get_auth().await? {
-            connect_auth::<T>(&config, auth).await?
+            connect_auth(&config, auth).await?
         } else {
-            let (client, auth) = connect_new::<T>(&config, None).await?;
+            let (client, auth) = connect_new(&config, None).await?;
             session.set_auth(&auth).await?;
             client
         };
 
-        let session = Arc::new(session);
-
-        let states = session.get_states().await?;
-        let interval = Duration::from_millis(100);
-        let checkpoints = config.db_checkpoints.clone();
-        let updater = Updater::new(Arc::clone(&session), states, interval, checkpoints);
-
         Ok(Self {
             config: Arc::new(config),
-            session,
+            session: Arc::new(session),
             client: Arc::new(RwLock::new(client)),
-            updater: Arc::new(Mutex::new(updater)),
+            updater: Arc::new(Mutex::new(Updater::new())),
         })
     }
 
@@ -48,7 +40,7 @@ where
         let mut client = self.client.write().await;
 
         let auth;
-        (*client, auth) = connect_new::<T>(&self.config, Some(dc_id)).await?;
+        (*client, auth) = connect_new(&self.config, Some(dc_id)).await?;
         self.session.set_auth(&auth).await?;
 
         Ok(())
@@ -62,7 +54,7 @@ where
 {
     let dc = get_dc::<T>(config, dc_id).await?;
 
-    let (client, auth_key) = fresh_connect::<T>(dc.clone(), config).await?;
+    let (client, auth_key) = fresh_connect(dc.clone(), config).await?;
     init_connection(&client, config).await?;
 
     let auth = Auth {
@@ -86,7 +78,7 @@ where
         pubkey: get_public_key(config.prod_dc),
     };
 
-    let client = authed_connect::<T>(dc, auth.auth_key, config).await?;
+    let client = authed_connect(dc, auth.auth_key, config).await?;
     init_connection(&client, config).await?;
 
     Ok(client)
@@ -103,7 +95,7 @@ where
     let dc_id = match dc_id {
         Some(dc_id) => dc_id,
         None => {
-            let nearest = client.call(tl::functions::help::GetNearestDc {}.into()).await?;
+            let nearest = client.call(tl::functions::help::GetNearestDc {}).await?;
             let tl::enums::NearestDc::NearestDc(nearest) = nearest;
             nearest.nearest_dc
         }
@@ -117,8 +109,8 @@ async fn fresh_connect<T>(dc: Datacenter, config: &Config)
 where
     T: Transport + Send + 'static,
 {
-    let mt_config = MtConfig { dc, use_gzip: config.use_compression };
-    let client = PlainClient::<T>::connect(mt_config).await?;
+    let mt_config = MtConfig { dc, use_gzip: config.use_compression, updates: config.updates };
+    let client = PlainClient::connect(mt_config).await?;
     Ok(client.auth().await?)
 }
 
@@ -127,7 +119,7 @@ async fn authed_connect<T>(dc: Datacenter, auth_key: [u8; 256], config: &Config)
 where
     T: Transport + Send + 'static,
 {
-    let mt_config = MtConfig { dc, use_gzip: config.use_compression };
+    let mt_config = MtConfig { dc, use_gzip: config.use_compression, updates: config.updates };
     Ok(EncryptedClient::connect(mt_config, auth_key).await?)
 }
 
@@ -150,7 +142,7 @@ where
             params: config.params.clone(),
             query: tl::functions::help::GetConfig {},
         },
-    }.into()).await?)
+    }).await?)
 }
 
 fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Option<Datacenter> {

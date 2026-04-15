@@ -1,104 +1,70 @@
-use crate::sessions::Session;
-use crate::{tl, Error};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
+use crate::client::updates::queue::Queue;
+use crate::tl;
+use std::collections::{HashMap, HashSet};
 use tl::types::updates::State;
-use tokio::time;
-use tokio::time::{Instant, Interval, MissedTickBehavior};
 
-#[derive(Clone)]
-pub struct Checkpoint {
-    pub after: Duration,
-    pub changes: u64,
+pub struct Updater {
+    states: Option<HashMap<i64, State>>,
+    pub bot: bool,
+    pub seq_queue: Queue<tl::types::UpdatesCombined>,
+    pub pts_queue: Queue<tl::enums::Update>,
+    pub qts_queue: Queue<tl::enums::Update>,
+    pub channel_queues: HashMap<i64, Queue<tl::enums::Update>>,
+    pub recovering: HashSet<i64>,
 }
 
-impl Checkpoint {
-    pub fn new(seconds: u64, operations: u64) -> Self {
-        Self {
-            after: Duration::from_secs(seconds),
-            changes: operations,
-        }
+impl Default for Updater {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-/// This struct has 3 purposes:
-/// 1. Manage states.
-/// 2. Dump states to disk based on RDB (Redis Database) algorithm.
-/// 3. Store whether states are initialized.
-pub struct Updater<S> {
-    session: Arc<S>,
-    states: HashMap<i64, State>,
-    interval: Interval,
-    started: Instant,
-    operations: u64,
-    checkpoints: Vec<Checkpoint>,
-    initialized: bool,
-}
-
-impl<S: Session> Updater<S> {
-    pub fn new(
-        session: Arc<S>,
-        states: HashMap<i64, State>,
-        interval: Duration,
-        checkpoints: Vec<Checkpoint>,
-    ) -> Self {
+impl Updater {
+    pub fn new() -> Self {
         Self {
-            session,
-            states,
-            interval: {
-                let mut interval = time::interval(interval);
-                interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-                interval
-            },
-            started: Instant::now(),
-            operations: 0,
-            checkpoints,
-            initialized: false,
+            states: None,
+            bot: false,
+            seq_queue: Queue::new(),
+            pts_queue: Queue::new(),
+            qts_queue: Queue::new(),
+            channel_queues: HashMap::new(),
+            recovering: HashSet::new(),
         }
     }
 
     pub fn initialized(&self) -> bool {
-        self.initialized
+        self.states.is_some()
     }
 
-    pub fn set_initialized(&mut self) {
-        self.initialized = true;
+    pub fn initialize(&mut self, states: HashMap<i64, State>) {
+        self.states = Some(states);
     }
 
-    pub async fn checkpoint(&mut self) {
-        self.interval.tick().await;
-    }
-
-    pub fn have_self(&self) -> bool {
-        self.have_state(0)
-    }
-
-    pub fn have_state(&self, id: i64) -> bool {
-        self.states.contains_key(&id)
-    }
-
-    pub fn get_self(&self) -> &State {
-        self.get_state(0)
+    pub fn states(&self) -> &HashMap<i64, State> {
+        self.states.as_ref()
             .expect("updater should be initialized")
     }
 
-    pub fn get_state(&self, id: i64) -> Option<&State> {
-        self.states.get(&id)
+    pub fn have_state(&self, id: i64) -> bool {
+        self.states.as_ref()
+            .expect("updater should be initialized")
+            .contains_key(&id)
     }
 
-    pub fn set_self<F>(&mut self, f: F)
-    where
-        F: Fn(&mut State),
-    {
-        self.set_state(0, f);
+    pub fn get_state(&self, id: i64) -> &State {
+        self.states.as_ref()
+            .expect("updater should be initialized")
+            .get(&id)
+            .unwrap()
     }
 
     pub fn set_state<F>(&mut self, id: i64, f: F)
     where
         F: Fn(&mut State),
     {
-        let state = self.states.entry(id)
+        let state = self.states.as_mut()
+            .expect("updater should be initialized")
+            .entry(id)
             .or_insert(State {
                 pts: 0,
                 qts: 0,
@@ -106,29 +72,13 @@ impl<S: Session> Updater<S> {
                 seq: 0,
                 unread_count: 0,
             });
+
         f(state);
-        self.operations += 1;
     }
 
-    pub fn need_save(&self) -> bool {
-        for checkpoint in &self.checkpoints {
-            let now = Instant::now();
-            let diff = now - self.started;
-
-            if diff > checkpoint.after && self.operations >= checkpoint.changes {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    pub async fn save(&mut self) -> Result<(), Error> {
-        self.session.set_states(&self.states).await?;
-
-        self.started = Instant::now();
-        self.operations = 0;
-
-        Ok(())
+    pub fn reset_channels(&mut self) {
+        self.states.as_mut()
+            .expect("updater should be initialized")
+            .retain(|&id, _| id == 0);
     }
 }

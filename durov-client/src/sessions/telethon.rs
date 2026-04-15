@@ -1,7 +1,8 @@
+use crate::sessions::encoding::{decode_peer_id, encode_peer_id, PeerType};
 use crate::sessions::{get_date, Auth, Peer, Session};
 use crate::{tl, Error};
 use async_trait::async_trait;
-use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteRow};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -31,18 +32,12 @@ impl Session for Telethon {
         Ok(())
     }
 
-    async fn get_peer_by_id(&self, id: i64) -> Result<Option<Peer>, Error> {
+    async fn get_peer_by_id(&self, id: i64, typ: PeerType) -> Result<Option<Peer>, Error> {
         let row = sqlx::query("SELECT * FROM entities WHERE id = ?")
-            .bind(id)
+            .bind(encode_peer_id(id, typ))
             .fetch_optional(&self.pool).await?;
 
-        let peer = row.map(|row| Peer {
-            id: row.get("id"),
-            access_hash: row.get("access_hash"),
-            username: row.get("username"),
-        });
-
-        Ok(peer)
+        Ok(row.map(peer_from_row))
     }
 
     async fn get_peer_by_username(&self, username: &str) -> Result<Option<Peer>, Error> {
@@ -50,13 +45,7 @@ impl Session for Telethon {
             .bind(username)
             .fetch_optional(&self.pool).await?;
 
-        let peer = row.map(|row| Peer {
-            id: row.get("id"),
-            access_hash: row.get("access_hash"),
-            username: row.get("username"),
-        });
-
-        Ok(peer)
+        Ok(row.map(peer_from_row))
     }
 
     async fn set_peers<I>(&self, iter: I) -> Result<(), Error>
@@ -67,12 +56,12 @@ impl Session for Telethon {
 
         for peer in iter {
             sqlx::query("DELETE FROM entities WHERE id = ? OR username = ?")
-                .bind(peer.id)
+                .bind(encode_peer_id(peer.id, peer.typ))
                 .bind(&peer.username)
                 .execute(&mut *transaction).await?;
 
             sqlx::query("INSERT INTO entities VALUES (?, ?, ?, NULL, NULL, ?)")
-                .bind(peer.id)
+                .bind(encode_peer_id(peer.id, peer.typ))
                 .bind(peer.access_hash)
                 .bind(&peer.username)
                 .bind(get_date())
@@ -227,4 +216,12 @@ CREATE TABLE IF NOT EXISTS version (
 
         Ok(())
     }
+}
+
+fn peer_from_row(row: SqliteRow) -> Peer {
+    let id = row.get("id");
+    let (id, typ) = decode_peer_id(id);
+    let access_hash = row.get("hash");
+    let username = row.get("username");
+    Peer { id, typ, access_hash, username }
 }

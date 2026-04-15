@@ -3,24 +3,27 @@ use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{deserialize, Identify};
 use std::any::Any;
-use std::sync::Arc;
 
 pub type Object = Box<dyn Any + Send>;
 pub type DeserializeObject = fn(&mut Cursor) -> Result<Object, deserialize::Error>;
 
+pub trait AnySerialize: Any + Serialize {}
+
+impl<T: Any + Serialize> AnySerialize for T {}
+
 pub struct InObject {
     pub id: i32,
-    pub body: Arc<dyn Serialize + Send + Sync>,
+    pub body: Box<dyn AnySerialize + Send>,
 }
 
 impl InObject {
-    pub fn new<T>(body: Arc<T>) -> Self
+    pub fn new<T>(body: T) -> Self
     where
-        T: Identify + Serialize + Send + Sync + 'static,
+        T: Identify + Serialize + Send + 'static,
     {
         Self {
             id: T::ID,
-            body,
+            body: Box::new(body),
         }
     }
 }
