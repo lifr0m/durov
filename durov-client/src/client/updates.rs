@@ -1,7 +1,6 @@
 pub mod updater;
 mod convert;
 mod action;
-mod peers;
 mod pts;
 mod queue;
 
@@ -9,11 +8,10 @@ use crate::client::Client;
 use crate::sessions::encoding::PeerType;
 use crate::sessions::{Peer, Session};
 use crate::{tl, Error};
-use action::*;
+use action::{decide_action, Action};
 use convert::*;
 use durov_mtproto::transports::Transport;
-use peers::*;
-use pts::*;
+use pts::{extract_pts, Sequence};
 use queue::Queue;
 use std::collections::HashSet;
 use std::iter;
@@ -183,7 +181,7 @@ where
                     let updates = updater.seq_queue.take()
                         .remove(0);
 
-                    apply_peers::<S>(&self.session, &updates.chats, &updates.users).await?;
+                    self.apply_peers(&updates.chats, &updates.users).await?;
 
                     updater.set_state(0, |state| {
                         if updates.date != 0 {
@@ -401,7 +399,7 @@ where
                     updates.push(convert_new_encrypted_message(message));
                 }
 
-                apply_peers::<S>(&self.session, &diff.chats, &diff.users).await?;
+                self.apply_peers(&diff.chats, &diff.users).await?;
 
                 let tl::enums::updates::State::State(current) = diff.state;
                 updater.set_state(0, |state| {
@@ -423,7 +421,7 @@ where
                     updates.push(convert_new_encrypted_message(message));
                 }
 
-                apply_peers::<S>(&self.session, &diff.chats, &diff.users).await?;
+                self.apply_peers(&diff.chats, &diff.users).await?;
 
                 let tl::enums::updates::State::State(current) = diff.intermediate_state;
                 updater.set_state(0, |state| {
@@ -472,7 +470,7 @@ where
                     updates.push(convert_new_message(message));
                 }
 
-                apply_peers::<S>(&self.session, &diff.chats, &diff.users).await?;
+                self.apply_peers(&diff.chats, &diff.users).await?;
 
                 updater.set_state(peer.id, |state| {
                     state.pts = diff.pts;
@@ -481,7 +479,7 @@ where
                 (self.process_updates(updater, updates), diff.final_)
             }
             tl::enums::updates::ChannelDifference::ChannelDifferenceTooLong(diff) => {
-                apply_peers::<S>(&self.session, &diff.chats, &diff.users).await?;
+                self.apply_peers(&diff.chats, &diff.users).await?;
 
                 match diff.dialog {
                     tl::enums::Dialog::Dialog(dialog) => {
