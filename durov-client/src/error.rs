@@ -16,7 +16,7 @@ impl Error {
     pub fn message(&self) -> &str {
         match self {
             Self::RpcError { message, .. } => message,
-            _ => unreachable!("error should be rpc error"),
+            _ => panic!("error should be rpc error"),
         }
     }
 
@@ -33,9 +33,9 @@ impl Error {
         self.message()
             .split("_")
             .nth(index)
-            .ok_or_else(|| Error::InvalidRpcError(self.message().to_string()))?
+            .unwrap_or_else(|| panic!("invalid rpc error: {}", self.message()))
             .parse()
-            .map_err(|_| Error::InvalidRpcError(self.message().to_string()))
+            .map_err(|_| panic!("invalid rpc error: {}", self.message()))
     }
 }
 

@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 use tl::types::updates::State;
 
+#[derive(Debug)]
 pub struct Peer {
     pub id: i64,
     pub typ: PeerType,

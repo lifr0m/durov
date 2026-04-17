@@ -24,9 +24,6 @@ pub enum Error {
         code: i32,
         message: String,
     },
-
-    #[error("invalid rpc error: {0}")]
-    InvalidRpcError(String),
 }
 
 impl From<durov_mtclient::Error> for Error {

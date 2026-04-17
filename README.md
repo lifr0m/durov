@@ -9,15 +9,24 @@ So sessions created by this project and telethon are compatible.
 
 # Features
 
-- Concurrent by nature, shareable between tasks. `Client` struct implements `Clone`
-- No `unsafe` code
-- Lock mechanisms are used only where necessary
-- No needless bytes copying. Library uses its own contiguous deque buffer implementation to efficiently work with bytes
-- Project complies with all [Telegram Security Guidelines](https://core.telegram.org/mtproto/security_guidelines)
+- No `unsafe` code.
+- Concurrent by nature, shareable between tasks. `Client` implements `Clone`.
+- Convenient work with RPC errors (`Error::is`, `Error::message`, `Error::parse`).
+- Lock mechanisms are used only where necessary.
+- No needless bytes copying. Library uses its own contiguous deque buffer implementation to efficiently work with bytes.
+  Serialization happens only at the end to the buffer which is written directly to the stream.
+- Project complies with all [Telegram Security Guidelines](https://core.telegram.org/mtproto/security_guidelines).
 
 # Feature flags
 
-- `fast-buf` - enables faster implementation of `Buffer` which uses `unsafe` code
+- `fast-buf` - enables faster implementation of `Buffer` which uses `unsafe` code.
+
+# Todo
+
+- Working with files:
+    - https://corefork.telegram.org/api/optimisation#downloading-files-and-uploading-data-to-the-server
+    - https://corefork.telegram.org/api/files
+    - https://corefork.telegram.org/api/file-references#file-sources
 
 # Security
 

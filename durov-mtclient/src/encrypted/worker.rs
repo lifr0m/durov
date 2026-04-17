@@ -322,11 +322,9 @@ impl<T: Transport> Worker<T> {
 
     fn process_updates(&mut self, body: Object) {
         match body.downcast::<api_tl::enums::Updates>() {
-            Ok(updates) => {
-                match &self.updates_tx {
-                    Some(updates_tx) => { updates_tx.send(*updates).ok(); }
-                    None => log::warn!("server sent updates while in no-updates mode"),
-                }
+            Ok(updates) => match &self.updates_tx {
+                Some(updates_tx) => { updates_tx.send(*updates).ok(); }
+                None => log::warn!("server sent updates while in no-updates mode"),
             }
             Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }

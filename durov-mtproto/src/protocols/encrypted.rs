@@ -16,7 +16,7 @@ use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{deserialize, Identify};
 use flate2::bufread::{GzDecoder, GzEncoder};
 use flate2::Compression;
-use object::{DeserializeObject, InObject, Object, OutObject};
+use object::{deserialize_object, DeserializeObject, InObject, Object, OutObject};
 use std::collections::BTreeSet;
 use std::io::Read;
 
@@ -319,7 +319,7 @@ impl Encrypted {
                 };
                 let result = ungzip(src, |src| {
                     select_deserialize(src, &[
-                        object::deserialize_object::<tl::enums::RpcError>,
+                        deserialize_object::<tl::enums::RpcError>,
                         deserialize,
                     ])
                 })?;
