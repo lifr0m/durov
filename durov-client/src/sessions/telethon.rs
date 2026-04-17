@@ -55,10 +55,15 @@ impl Session for Telethon {
         let mut transaction = self.pool.begin().await?;
 
         for peer in iter {
-            sqlx::query("DELETE FROM entities WHERE id = ? OR username = ?")
+            sqlx::query("DELETE FROM entities WHERE id = ?")
                 .bind(encode_peer_id(peer.id, peer.typ))
-                .bind(&peer.username)
                 .execute(&mut *transaction).await?;
+
+            if peer.username.is_some() {
+                sqlx::query("UPDATE entities SET username = NULL WHERE username = ?")
+                    .bind(&peer.username)
+                    .execute(&mut *transaction).await?;
+            }
 
             sqlx::query("INSERT INTO entities VALUES (?, ?, ?, NULL, NULL, ?)")
                 .bind(encode_peer_id(peer.id, peer.typ))
