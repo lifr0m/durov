@@ -3,14 +3,13 @@ use crate::encrypted::complications::redirect_updates;
 use crate::encrypted::receiver::Receiver;
 use crate::encrypted::salt::FutureSalts;
 use crate::encrypted::sender::Sender;
-use durov_mtproto::protocols::encrypted::object::{deserialize_object, DeserializeObject, InObject, Object};
+use durov_mtproto::protocols::encrypted::object::{deserialize_box, DeserializeBox, PackObject, UnpackObject};
 use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
-use durov_tl_types::Identify;
 use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
@@ -35,9 +34,9 @@ enum Error {
 }
 
 pub struct CallData {
-    pub body: InObject,
-    pub callback: oneshot::Sender<Object>,
-    pub deserialize: DeserializeObject,
+    pub body: PackObject,
+    pub callback: oneshot::Sender<UnpackObject>,
+    pub deserialize: DeserializeBox,
 }
 
 pub struct Worker<T> {
@@ -158,7 +157,7 @@ impl<T: Transport> Worker<T> {
             self.protocol.set_salt(salt);
         } else {
             let object = tl::functions::GetFutureSalts { num: 4 };
-            let object = InObject::new(object);
+            let object = Box::new(object) as PackObject;
             self.enqueue_objects(&[&object]);
             self.salts.asked = get_now();
         }
@@ -169,20 +168,17 @@ impl<T: Transport> Worker<T> {
             ping_id: rand::random(),
             disconnect_delay: 75,
         };
-        let object = InObject::new(object);
+        let object = Box::new(object) as PackObject;
         self.enqueue_objects(&[&object]);
     }
 
-    fn new_ack_object(&mut self) -> InObject {
+    fn new_ack_object(&mut self) -> PackObject {
         let object = tl::enums::MsgsAck::MsgsAck(
             tl::types::MsgsAck {
                 msg_ids: self.ack.next_batch(),
             }
         );
-        InObject {
-            id: tl::types::MsgsAck::ID,
-            body: Box::new(object),
-        }
+        Box::new(object)
     }
 
     fn process_recv_buf(&mut self) -> Result<(), Error> {
@@ -191,12 +187,12 @@ impl<T: Transport> Worker<T> {
                 let objects = self.protocol.unpack(
                     &mut self.receiver.buf,
                     &[
-                        deserialize_object::<tl::enums::NewSession>,
-                        deserialize_object::<tl::enums::FutureSalts>,
-                        deserialize_object::<tl::enums::BadMsgNotification>,
-                        deserialize_object::<tl::enums::MsgsAck>,
-                        deserialize_object::<tl::enums::Pong>,
-                        deserialize_object::<api_tl::enums::Updates>,
+                        deserialize_box::<tl::enums::NewSession>,
+                        deserialize_box::<tl::enums::FutureSalts>,
+                        deserialize_box::<tl::enums::BadMsgNotification>,
+                        deserialize_box::<tl::enums::MsgsAck>,
+                        deserialize_box::<tl::enums::Pong>,
+                        deserialize_box::<api_tl::enums::Updates>,
                     ],
                     |msg_id| {
                         self.call_map.get(&msg_id)
@@ -205,7 +201,7 @@ impl<T: Transport> Worker<T> {
                 )?;
 
                 for obj in objects {
-                    self.process_object(obj.msg_id, obj.body);
+                    self.process_object(obj.msg_id, obj.object);
                 }
 
                 self.receiver.buf.clear();
@@ -220,13 +216,13 @@ impl<T: Transport> Worker<T> {
         Ok(())
     }
 
-    fn process_object(&mut self, msg_id: i64, body: Object) {
+    fn process_object(&mut self, msg_id: i64, body: UnpackObject) {
         match body.downcast::<RpcResult>() {
             Ok(mut rpc) => {
                 let call = self.call_map.remove(&rpc.req_msg_id)
                     .expect("this check should be done in protocol unpack flow");
                 if let Some(updates_tx) = &self.updates_tx {
-                    redirect_updates(updates_tx, call.body.body.as_ref(), &mut rpc.result);
+                    redirect_updates(updates_tx, call.body.as_ref(), &mut rpc.result);
                 }
                 call.callback.send(rpc.result).ok();
                 self.ack.add(msg_id);
@@ -235,7 +231,7 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn process_new_session(&mut self, msg_id: i64, body: Object) {
+    fn process_new_session(&mut self, msg_id: i64, body: UnpackObject) {
         match body.downcast::<tl::enums::NewSession>() {
             Ok(new) => {
                 let tl::enums::NewSession::NewSessionCreated(new) = *new;
@@ -252,7 +248,7 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn process_future_salts(&mut self, msg_id: i64, body: Object) {
+    fn process_future_salts(&mut self, msg_id: i64, body: UnpackObject) {
         match body.downcast::<tl::enums::FutureSalts>() {
             Ok(future) => {
                 let tl::enums::FutureSalts::FutureSalts(mut future) = *future;
@@ -274,7 +270,7 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn process_bad_msg_notification(&mut self, msg_id: i64, body: Object) {
+    fn process_bad_msg_notification(&mut self, msg_id: i64, body: UnpackObject) {
         match body.downcast::<tl::enums::BadMsgNotification>() {
             Ok(bad) => {
                 match *bad {
@@ -306,21 +302,21 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn process_messages_ack(&mut self, body: Object) {
+    fn process_messages_ack(&mut self, body: UnpackObject) {
         match body.downcast::<tl::enums::MsgsAck>() {
             Ok(_) => {}
             Err(body) => self.process_pong(body),
         }
     }
 
-    fn process_pong(&mut self, body: Object) {
+    fn process_pong(&mut self, body: UnpackObject) {
         match body.downcast::<tl::enums::Pong>() {
             Ok(_) => {}
             Err(body) => self.process_updates(body),
         }
     }
 
-    fn process_updates(&mut self, body: Object) {
+    fn process_updates(&mut self, body: UnpackObject) {
         match body.downcast::<api_tl::enums::Updates>() {
             Ok(updates) => match &self.updates_tx {
                 Some(updates_tx) => { updates_tx.send(*updates).ok(); }
@@ -330,7 +326,7 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn enqueue_objects(&mut self, objects: &[&InObject]) -> Vec<i64> {
+    fn enqueue_objects(&mut self, objects: &[&PackObject]) -> Vec<i64> {
         let mut message_ids = Vec::new();
         for chunk in objects.chunks(1024) {
             let mut buf = Buffer::new();

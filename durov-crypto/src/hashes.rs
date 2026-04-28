@@ -7,8 +7,7 @@ pub fn crc32<const N: usize>(data: [&[u8]; N]) -> i32 {
     for elem in data {
         hasher.update(elem);
     }
-    hasher.finalize()
-        as i32
+    hasher.finalize() as i32
 }
 
 pub fn sha256<const N: usize>(data: [&[u8]; N]) -> [u8; 32] {
@@ -16,8 +15,7 @@ pub fn sha256<const N: usize>(data: [&[u8]; N]) -> [u8; 32] {
     for elem in data {
         hasher.update(elem);
     }
-    hasher.finalize()
-        .0
+    hasher.finalize().0
 }
 
 pub fn sha1<const N: usize>(data: [&[u8]; N]) -> [u8; 20] {
@@ -25,6 +23,5 @@ pub fn sha1<const N: usize>(data: [&[u8]; N]) -> [u8; 20] {
     for elem in data {
         hasher.update(elem);
     }
-    hasher.finalize()
-        .0
+    hasher.finalize().0
 }

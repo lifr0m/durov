@@ -1,4 +1,5 @@
-use crate::write::{Context, Write};
+use crate::context::Context;
+use crate::write::Write;
 use crate::writer::Writer;
 use convert_case::{Case, Casing};
 use durov_tl_parser::Name;

@@ -1,8 +1,7 @@
-mod check;
 mod recursion;
 mod tree;
 
-use crc_fast::{checksum, CrcAlgorithm};
+use crc_fast::CrcAlgorithm;
 
 const IGNORED_COMBINATORS: &[&str] = &[
     "int ? = Int",
@@ -30,7 +29,7 @@ pub struct Name {
     pub name: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum DataType {
     Int,
     Long,
@@ -135,7 +134,6 @@ pub fn parse_schema(input: &str) -> Schema {
 
     let mut schema = Schema { layer, combinators };
     recursion::fix_recursion(&mut schema);
-    check::check_schema(&schema);
     schema
 }
 
@@ -290,7 +288,7 @@ fn parse_name(line: &str) -> Name {
 fn calc_combinator_id(line: &str) -> i32 {
     let line = line.replace("{", "")
         .replace("}", "");
-    checksum(CrcAlgorithm::Crc32IsoHdlc, line.as_bytes()) as i32
+    crc_fast::checksum(CrcAlgorithm::Crc32IsoHdlc, line.as_bytes()) as i32
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use durov_mtproto::protocols::encrypted::object::Object;
+use durov_mtproto::protocols::encrypted::object::UnpackObject;
 use durov_tl_types::schemas::api as tl;
 use std::any::Any;
 use std::mem;
@@ -13,7 +13,7 @@ enum Sequence {
 pub fn redirect_updates(
     queue: &mpsc::UnboundedSender<tl::enums::Updates>,
     req: &dyn Any,
-    resp: &mut Object,
+    resp: &mut UnpackObject,
 ) {
     if let Some(updates) = extract_updates(resp) {
         queue.send(updates).ok();
@@ -31,7 +31,7 @@ pub fn redirect_updates(
     }
 }
 
-fn extract_updates(resp: &mut Object) -> Option<tl::enums::Updates> {
+fn extract_updates(resp: &mut UnpackObject) -> Option<tl::enums::Updates> {
     let empty = tl::types::Updates {
         updates: Vec::new(),
         users: Vec::new(),
@@ -58,7 +58,7 @@ fn extract_updates(resp: &mut Object) -> Option<tl::enums::Updates> {
     None
 }
 
-fn extract_pts(req: &dyn Any, resp: &Object) -> Option<(Sequence, i32, i32)> {
+fn extract_pts(req: &dyn Any, resp: &UnpackObject) -> Option<(Sequence, i32, i32)> {
     if let Some(resp) = resp.downcast_ref::<tl::enums::messages::AffectedHistory>() {
         let tl::enums::messages::AffectedHistory::AffectedHistory(resp) = resp;
         let sequence = extract_sequence(req, "messages.AffectedHistory");

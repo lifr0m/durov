@@ -1,6 +1,5 @@
 use std::fmt::Write;
 
-/// Pretty-print bytes.
 pub fn debug_bytes(comment: &str, data: &[u8]) {
     if !log::log_enabled!(log::Level::Debug) {
         return;

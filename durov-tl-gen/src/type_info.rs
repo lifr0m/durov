@@ -1,4 +1,5 @@
-use crate::write::{Context, Write};
+use crate::context::Context;
+use crate::write::Write;
 use crate::writer::Writer;
 use convert_case::{Case, Casing};
 use durov_tl_parser::{Combinator, Name};
@@ -22,6 +23,26 @@ impl<'a> Write for Type<'a> {
             constructor.name.write(writer, context);
             writer.raw_write("),\n");
         }
+        writer.subtract_indent();
+        writer.indent_write("}\n\n");
+
+        writer.indent_write("impl crate::GetIdentifier for ");
+        writer.raw_write(&self.name.name.to_case(Case::Pascal));
+        writer.raw_write(" {\n");
+        writer.add_indent();
+        writer.indent_write("fn id(&self) -> i32 {\n");
+        writer.add_indent();
+        writer.indent_write("match self {\n");
+        writer.add_indent();
+        for constructor in &self.constructors {
+            writer.indent_write("Self::");
+            writer.raw_write(&constructor.name.name.to_case(Case::Pascal));
+            writer.raw_write("(o) => o.id(),\n");
+        }
+        writer.subtract_indent();
+        writer.indent_write("}\n");
+        writer.subtract_indent();
+        writer.indent_write("}\n");
         writer.subtract_indent();
         writer.indent_write("}\n\n");
 

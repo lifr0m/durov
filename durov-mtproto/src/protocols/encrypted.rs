@@ -16,7 +16,7 @@ use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{deserialize, Identify};
 use flate2::bufread::{GzDecoder, GzEncoder};
 use flate2::Compression;
-use object::{deserialize_object, DeserializeObject, InObject, Object, OutObject};
+use object::{deserialize_box, DeserializeBox, PackObject, UnpackObject};
 use std::collections::BTreeSet;
 use std::io::Read;
 
@@ -25,9 +25,14 @@ const SKIP_GZIP: &[i32] = &[
     durov_tl_types::schemas::api::functions::upload::SaveBigFilePart::ID,
 ];
 
+pub struct Unpacked {
+    pub msg_id: i64,
+    pub object: UnpackObject,
+}
+
 pub struct RpcResult {
     pub req_msg_id: i64,
-    pub result: Object,
+    pub result: UnpackObject,
 }
 
 pub struct Encrypted {
@@ -86,7 +91,7 @@ impl Encrypted {
     const DECRYPTED: usize = Self::ENCRYPTED + 8 + 8;
     const MESSAGE: usize = Self::DECRYPTED + 8 + 4 + 4;
 
-    pub fn pack(&mut self, buf: &mut Buffer, objects: &[&InObject]) -> Vec<i64> {
+    pub fn pack(&mut self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
         let message_ids = match objects.len() {
             1 => self.pack_one_object(buf, objects[0]),
             _ => self.pack_many_objects(buf, objects),
@@ -121,13 +126,13 @@ impl Encrypted {
         message_ids
     }
 
-    fn pack_one_object(&mut self, buf: &mut Buffer, object: &InObject) -> Vec<i64> {
+    fn pack_one_object(&mut self, buf: &mut Buffer, object: &PackObject) -> Vec<i64> {
         let msg_id = self.pack_object(buf, object);
 
         vec![msg_id]
     }
 
-    fn pack_many_objects(&mut self, buf: &mut Buffer, objects: &[&InObject]) -> Vec<i64> {
+    fn pack_many_objects(&mut self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
         MSG_CONTAINER_ID.serialize(buf);
         (objects.len() as i32).serialize(buf);
 
@@ -148,23 +153,23 @@ impl Encrypted {
         message_ids
     }
 
-    fn pack_object(&mut self, buf: &mut Buffer, object: &InObject) -> i64 {
+    fn pack_object(&mut self, buf: &mut Buffer, object: &PackObject) -> i64 {
         let msg_id = get_msg_id(self.time_diff);
         msg_id.serialize(buf);
 
-        let content = durov_tl_types::schemas::api::ALL_IDS.contains(&object.id);
+        let content = durov_tl_types::schemas::api::ALL_IDS.contains(&object.id());
         self.next_msg_seq(content).serialize(buf);
 
         serialize_len_first(buf, |buf| {
-            if self.use_gzip && content && !SKIP_GZIP.contains(&object.id) {
+            if self.use_gzip && content && !SKIP_GZIP.contains(&object.id()) {
                 let mut serialized = Buffer::new();
-                object.body.serialize(&mut serialized);
+                object.serialize(&mut serialized);
 
                 if serialized.len() > 255 {
                     let mut compressed = Buffer::new();
                     GZIP_PACKED_ID.serialize(&mut compressed);
                     let level = Compression::default();
-                    let mut encoder = GzEncoder::new(&*serialized, level);
+                    let mut encoder = GzEncoder::new(serialized.as_ref(), level);
                     let mut packed_data = Vec::new();
                     encoder.read_to_end(&mut packed_data)
                         .unwrap();
@@ -179,7 +184,7 @@ impl Encrypted {
                     buf.extend_back(&serialized);
                 }
             } else {
-                object.body.serialize(buf);
+                object.serialize(buf);
             }
         });
 
@@ -199,9 +204,9 @@ impl Encrypted {
     pub fn unpack(
         &mut self,
         buf: &mut Buffer,
-        deserialize_list: &[DeserializeObject],
-        get_deserialize: impl Fn(i64) -> Option<DeserializeObject>,
-    ) -> Result<Vec<OutObject>, Error> {
+        deserialize_list: &[DeserializeBox],
+        get_deserialize: impl Fn(i64) -> Option<DeserializeBox>,
+    ) -> Result<Vec<Unpacked>, Error> {
         debug_bytes("protocol [encrypted] (unpack) [encrypted]", buf);
 
         if buf.len() < Self::ENCRYPTED {
@@ -270,9 +275,9 @@ impl Encrypted {
     fn unpack_message(
         &mut self,
         src: &mut Cursor,
-        deserialize_list: &[DeserializeObject],
-        get_deserialize: &impl Fn(i64) -> Option<DeserializeObject>,
-    ) -> Result<Vec<OutObject>, Error> {
+        deserialize_list: &[DeserializeBox],
+        get_deserialize: &impl Fn(i64) -> Option<DeserializeBox>,
+    ) -> Result<Vec<Unpacked>, Error> {
         let msg_id = i64::deserialize(src)?;
         let _seq = i32::deserialize(src)?;
         let len = i32::deserialize(src)? as usize;
@@ -319,13 +324,13 @@ impl Encrypted {
                 };
                 let result = ungzip(src, |src| {
                     select_deserialize(src, &[
-                        deserialize_object::<tl::enums::RpcError>,
+                        deserialize_box::<tl::enums::RpcError>,
                         deserialize,
                     ])
                 })?;
 
                 let object = Box::new(RpcResult { req_msg_id, result });
-                Ok(vec![OutObject::new(msg_id, object)])
+                Ok(vec![Unpacked { msg_id, object }])
             }
             _ => {
                 src.seek(Seek::Backward(4));
@@ -333,7 +338,7 @@ impl Encrypted {
                 match ungzip(src, |src| {
                     select_deserialize(src, deserialize_list)
                 }) {
-                    Ok(object) => Ok(vec![OutObject::new(msg_id, object)]),
+                    Ok(object) => Ok(vec![Unpacked { msg_id, object }]),
                     Err(deserialize::Error::IdMismatch { .. }) => {
                         log::warn!("received unknown object: {id:x}");
                         Ok(skip_message(src, end))
@@ -345,21 +350,21 @@ impl Encrypted {
     }
 }
 
-fn skip_message(src: &mut Cursor, end: usize) -> Vec<OutObject> {
+fn skip_message(src: &mut Cursor, end: usize) -> Vec<Unpacked> {
     src.seek(Seek::Position(end));
     vec![]
 }
 
-fn ungzip<F>(src: &mut Cursor, deserialize: F) -> Result<Object, deserialize::Error>
+fn ungzip<F>(src: &mut Cursor, deserialize: F) -> Result<UnpackObject, deserialize::Error>
 where
-    F: Fn(&mut Cursor) -> Result<Object, deserialize::Error>,
+    F: Fn(&mut Cursor) -> Result<UnpackObject, deserialize::Error>,
 {
     let id = i32::deserialize(src)?;
 
     match id {
         GZIP_PACKED_ID => {
             let packed_data = Vec::<u8>::deserialize(src)?;
-            let mut decoder = GzDecoder::new(&*packed_data);
+            let mut decoder = GzDecoder::new(packed_data.as_ref());
             let mut data = Vec::new();
             decoder.read_to_end(&mut data)
                 .map_err(deserialize::Error::GzipDecode)?;
@@ -374,8 +379,8 @@ where
     }
 }
 
-fn select_deserialize(src: &mut Cursor, list: &[DeserializeObject])
-    -> Result<Object, deserialize::Error>
+fn select_deserialize(src: &mut Cursor, list: &[DeserializeBox])
+    -> Result<UnpackObject, deserialize::Error>
 {
     match list[0](src) {
         Ok(object) => Ok(object),

@@ -6,7 +6,7 @@ type Client = durov_client::client::Client<
     durov_client::sessions::telethon::Telethon,
 >;
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> eyre::Result<()> {
     env_logger::Builder::new()
         .filter(None, log::LevelFilter::Warn)

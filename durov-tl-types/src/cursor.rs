@@ -2,11 +2,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("missing bytes: data len {data_len}, pos {pos}, requested len {requested_len}")]
+    #[error("missing bytes: total {total}, pos {pos}, requested {requested}")]
     MissingBytes {
-        data_len: usize,
+        total: usize,
         pos: usize,
-        requested_len: usize,
+        requested: usize,
     },
 }
 
@@ -44,9 +44,9 @@ impl<'a> Cursor<'a> {
     pub fn read(&mut self, dst: &mut [u8]) -> Result<(), Error> {
         if self.pos + dst.len() > self.data.len() {
             return Err(Error::MissingBytes {
-                data_len: self.data.len(),
+                total: self.data.len(),
                 pos: self.pos,
-                requested_len: dst.len(),
+                requested: dst.len(),
             });
         }
 

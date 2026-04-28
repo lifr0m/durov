@@ -7,7 +7,7 @@ mod complications;
 
 use crate::config::MtConfig;
 use crate::{tcp, Error};
-use durov_mtproto::protocols::encrypted::object::{deserialize_object, InObject, Object};
+use durov_mtproto::protocols::encrypted::object::{deserialize_box, UnpackObject};
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::transports::Transport;
 use durov_tl_types::deserialize::Deserialize;
@@ -56,9 +56,9 @@ where
         let (tx, rx) = oneshot::channel();
 
         let call = CallData {
-            body: InObject::new(func),
+            body: Box::new(func),
             callback: tx,
-            deserialize: deserialize_object::<F::Result>,
+            deserialize: deserialize_box::<F::Result>,
         };
         if self.call_tx.send(call).is_err() {
             return Err(Error::Connection);
@@ -77,7 +77,7 @@ where
             .ok_or(Error::Connection)
     }
 
-    fn process_rpc_response<R>(&self, object: Object) -> Result<R, Error>
+    fn process_rpc_response<R>(&self, object: UnpackObject) -> Result<R, Error>
     where
         R: 'static,
     {
@@ -87,7 +87,7 @@ where
         }
     }
 
-    fn process_rpc_error<R>(&self, object: Object) -> Result<R, Error> {
+    fn process_rpc_error<R>(&self, object: UnpackObject) -> Result<R, Error> {
         match object.downcast::<tl::enums::RpcError>() {
             Ok(rpc) => {
                 let tl::enums::RpcError::RpcError(rpc) = *rpc;

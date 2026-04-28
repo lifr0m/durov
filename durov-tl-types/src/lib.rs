@@ -10,6 +10,16 @@ pub trait Identify {
     const ID: i32;
 }
 
+pub trait GetIdentifier {
+    fn id(&self) -> i32;
+}
+
+impl<T: Identify> GetIdentifier for T {
+    fn id(&self) -> i32 {
+        T::ID
+    }
+}
+
 pub trait Call {
     type Result;
 }

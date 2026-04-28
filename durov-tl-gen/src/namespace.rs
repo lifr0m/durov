@@ -1,4 +1,5 @@
-use crate::write::{Context, Write};
+use crate::context::Context;
+use crate::write::Write;
 use crate::writer::Writer;
 
 pub struct Namespace<T> {

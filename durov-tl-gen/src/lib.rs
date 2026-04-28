@@ -5,12 +5,14 @@ mod type_info;
 mod combinator;
 mod data_type;
 mod name;
+mod context;
 
+use context::Context;
 use durov_tl_parser::{Combinator, CombinatorType, DataType, Name, Schema};
 use namespace::Namespace;
 use std::collections::HashMap;
 use type_info::Type;
-use write::{Context, Write};
+use write::Write;
 use writer::Writer;
 
 const TYPES_NAMESPACE: &str = "enums";
