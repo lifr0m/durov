@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
 use tokio::time::MissedTickBehavior;
 use tokio::{io, time};
 
@@ -35,7 +34,7 @@ enum Error {
 
 pub struct CallData {
     pub body: PackObject,
-    pub callback: oneshot::Sender<UnpackObject>,
+    pub callback: flume::Sender<UnpackObject>,
     pub deserialize: DeserializeBox,
 }
 
@@ -44,9 +43,9 @@ pub struct Worker<T> {
     receiver: Receiver,
     transport: T,
     protocol: Encrypted,
-    call_rx: mpsc::UnboundedReceiver<CallData>,
+    call_rx: flume::Receiver<CallData>,
     call_map: HashMap<i64, CallData>,
-    updates_tx: Option<mpsc::UnboundedSender<api_tl::enums::Updates>>,
+    updates_tx: Option<flume::Sender<api_tl::enums::Updates>>,
     ack: Ack,
     salts: FutureSalts,
     synced_salt: bool,
@@ -58,8 +57,8 @@ impl<T: Transport> Worker<T> {
         stream: TcpStream,
         transport: T,
         protocol: Encrypted,
-        call_rx: mpsc::UnboundedReceiver<CallData>,
-        updates_tx: Option<mpsc::UnboundedSender<api_tl::enums::Updates>>,
+        call_rx: flume::Receiver<CallData>,
+        updates_tx: Option<flume::Sender<api_tl::enums::Updates>>,
     ) -> Self {
         let (reader, writer) = stream.into_split();
         Self {
@@ -100,8 +99,8 @@ impl<T: Transport> Worker<T> {
             n = self.sender.send(), if self.sender.condition() => {
                 self.on_send(n?);
             }
-            call = self.call_rx.recv(), if self.protocol.is_ready() => {
-                self.on_call(call.ok_or(Error::Stop)?);
+            call = self.call_rx.recv_async(), if self.protocol.is_ready() => {
+                self.on_call(call.map_err(|_| Error::Stop)?);
             }
             _ = self.ack.wait(), if self.protocol.is_ready() && self.ack.condition() => {
                 self.on_ack_timeout();

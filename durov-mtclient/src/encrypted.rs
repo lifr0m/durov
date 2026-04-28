@@ -17,12 +17,11 @@ use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify};
 use std::marker::PhantomData;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot, Mutex};
 use worker::{CallData, Worker};
 
 pub struct EncryptedClient<T> {
-    call_tx: mpsc::UnboundedSender<CallData>,
-    updates_rx: Mutex<mpsc::UnboundedReceiver<api_tl::enums::Updates>>,
+    call_tx: flume::Sender<CallData>,
+    updates_rx: flume::Receiver<api_tl::enums::Updates>,
     transport: PhantomData<T>,
 }
 
@@ -31,14 +30,10 @@ where
     T: Send + 'static,
 {
     pub fn new(stream: TcpStream, transport: T, protocol: Encrypted, updates: bool) -> Self {
-        let (call_tx, call_rx) = mpsc::unbounded_channel();
-        let (updates_tx, updates_rx) = mpsc::unbounded_channel();
+        let (call_tx, call_rx) = flume::unbounded();
+        let (updates_tx, updates_rx) = flume::unbounded();
         tokio::spawn(Worker::new(stream, transport, protocol, call_rx, updates.then_some(updates_tx)).run());
-        Self {
-            call_tx,
-            updates_rx: Mutex::new(updates_rx),
-            transport: PhantomData,
-        }
+        Self { call_tx, updates_rx, transport: PhantomData }
     }
 
     pub async fn connect(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error> {
@@ -53,7 +48,7 @@ where
         F: Identify + Call + Serialize + Send + 'static,
         F::Result: Deserialize + Send,
     {
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = flume::unbounded();
 
         let call = CallData {
             body: Box::new(func),
@@ -64,17 +59,14 @@ where
             return Err(Error::Connection);
         }
 
-        let object = rx.await
+        let object = rx.recv_async().await
             .map_err(|_| Error::Connection)?;
         self.process_rpc_response(object)
     }
 
     pub async fn next(&self) -> Result<api_tl::enums::Updates, Error> {
-        self.updates_rx.try_lock()
-            .expect("you can listen for updates only from one task")
-            .recv()
-            .await
-            .ok_or(Error::Connection)
+        self.updates_rx.recv_async().await
+            .map_err(|_| Error::Connection)
     }
 
     fn process_rpc_response<R>(&self, object: UnpackObject) -> Result<R, Error>

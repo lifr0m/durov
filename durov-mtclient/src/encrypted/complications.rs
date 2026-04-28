@@ -2,7 +2,6 @@ use durov_mtproto::protocols::encrypted::object::UnpackObject;
 use durov_tl_types::schemas::api as tl;
 use std::any::Any;
 use std::mem;
-use tokio::sync::mpsc;
 
 enum Sequence {
     Common,
@@ -11,7 +10,7 @@ enum Sequence {
 }
 
 pub fn redirect_updates(
-    queue: &mpsc::UnboundedSender<tl::enums::Updates>,
+    queue: &flume::Sender<tl::enums::Updates>,
     req: &dyn Any,
     resp: &mut UnpackObject,
 ) {
