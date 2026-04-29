@@ -44,7 +44,7 @@ pub fn generate_code(schema: &Schema) -> String {
     writer.destruct()
 }
 
-fn write_layer(writer: &mut Writer, layer: u16) {
+fn write_layer(writer: &mut Writer, layer: i32) {
     writer.indent_write("pub const LAYER: i32 = ");
     writer.raw_write(&layer.to_string());
     writer.raw_write(";\n");

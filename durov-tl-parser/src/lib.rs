@@ -42,9 +42,8 @@ pub enum DataType {
     Int128,
     Int256,
     Defined(Name),
-    Polymorphic(String),
-    PolymorphicFunction(String),
-    PolymorphicFunctionResult(String),
+    Function,
+    FunctionResult,
     Condition,
     Conditional {
         field: String,
@@ -73,23 +72,9 @@ pub struct Combinator {
     pub fields: Vec<Field>,
 }
 
-impl Combinator {
-    pub fn iter_data_types(&self) -> impl Iterator<Item = &DataType> {
-        self.fields.iter()
-            .map(|f| &f.typ)
-            .chain([&self.data_type])
-    }
-
-    pub fn iter_data_types_mut(&mut self) -> impl Iterator<Item = &mut DataType> {
-        self.fields.iter_mut()
-            .map(|f| &mut f.typ)
-            .chain([&mut self.data_type])
-    }
-}
-
 #[derive(Debug)]
 pub struct Schema {
-    pub layer: Option<u16>,
+    pub layer: Option<i32>,
     pub combinators: Vec<Combinator>,
 }
 
@@ -129,26 +114,12 @@ pub fn parse_schema(input: &str) -> Schema {
             continue;
         }
 
-        combinators.push(replace_polymorphic(parse_combinator(line, combinator_type)));
+        combinators.push(parse_combinator(line, combinator_type));
     }
 
     let mut schema = Schema { layer, combinators };
     recursion::fix_recursion(&mut schema);
     schema
-}
-
-fn replace_polymorphic(mut combinator: Combinator) -> Combinator {
-    if combinator.iter_data_types()
-        .any(|typ| matches!(typ, DataType::PolymorphicFunction(_)))
-    {
-        for typ in combinator.iter_data_types_mut() {
-            if let DataType::Polymorphic(name) = typ {
-                *typ = DataType::PolymorphicFunctionResult(name.clone());
-            }
-        }
-    }
-
-    combinator
 }
 
 fn parse_combinator(line: &str, typ: CombinatorType) -> Combinator {
@@ -159,8 +130,7 @@ fn parse_combinator(line: &str, typ: CombinatorType) -> Combinator {
             let (id, line) = line.split_once(" ")
                 .unwrap();
             let id = u32::from_str_radix(id, 16)
-                .map(|v| v as i32)
-                .unwrap();
+                .unwrap() as i32;
 
             (name, id, line)
         }
@@ -175,41 +145,28 @@ fn parse_combinator(line: &str, typ: CombinatorType) -> Combinator {
         }
     };
 
-    let (line, poly_type) = parse_poly_type(line);
+    let line = line.strip_prefix("{X:Type} ")
+        .unwrap_or(line);
 
     let (line, data_type) = line.split_once("= ")
         .unwrap();
-    let line = line.trim_end();
+    let line = line.strip_suffix(" ")
+        .unwrap_or(line);
 
-    let data_type = parse_data_type(data_type, poly_type);
+    let data_type = parse_data_type(data_type);
 
-    let fields = if line.is_empty() { Vec::new() } else {
+    let fields = if line.is_empty() {
+        Vec::new()
+    } else {
         line.split(" ")
-            .map(|line| parse_field(line, poly_type))
+            .map(parse_field)
             .collect()
     };
 
     Combinator { typ, name, id, data_type, fields }
 }
 
-fn parse_poly_type(line: &str) -> (&str, Option<&str>) {
-    let old_line = line;
-
-    let (poly_type, line) = line.split_once(" ")
-        .unwrap();
-
-    if poly_type.starts_with("{") {
-        let poly_type = poly_type.strip_prefix("{")
-            .unwrap()
-            .strip_suffix(":Type}")
-            .unwrap();
-        (line, Some(poly_type))
-    } else {
-        (old_line, None)
-    }
-}
-
-fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
+fn parse_data_type(line: &str) -> DataType {
     match line {
         "int" => DataType::Int,
         "long" => DataType::Long,
@@ -220,26 +177,22 @@ fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
         "int128" => DataType::Int128,
         "int256" => DataType::Int256,
         "#" => DataType::Condition,
-        _ if Some(line) == poly_type => DataType::Polymorphic(line.to_string()),
-        _ if line.starts_with("!") => DataType::PolymorphicFunction(
-            line.strip_prefix("!")
-                .unwrap()
-                .to_string(),
-        ),
-        _ if line.starts_with("Vector<") => DataType::Vector(Box::new(parse_data_type(
-            line.strip_prefix("Vector<")
+        "!X" => DataType::Function,
+        "X" => DataType::FunctionResult,
+        _ if line.starts_with("Vector<") && line.ends_with(">") => {
+            let line = line.strip_prefix("Vector<")
                 .unwrap()
                 .strip_suffix(">")
-                .unwrap(),
-            poly_type,
-        ))),
-        _ if line.starts_with("vector<") => DataType::BareVector(Box::new(parse_data_type(
-            line.strip_prefix("vector<")
+                .unwrap();
+            DataType::Vector(Box::new(parse_data_type(line)))
+        }
+        _ if line.starts_with("vector<") && line.ends_with(">") => {
+            let line = line.strip_prefix("vector<")
                 .unwrap()
                 .strip_suffix(">")
-                .unwrap(),
-            poly_type,
-        ))),
+                .unwrap();
+            DataType::BareVector(Box::new(parse_data_type(line)))
+        }
         _ if line.contains("?") => {
             let (condition, line) = line.split_once("?")
                 .unwrap();
@@ -253,8 +206,7 @@ fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
             if line == "true" {
                 DataType::ConditionalTrue { field, bit }
             } else {
-                let typ = Box::new(parse_data_type(line, poly_type));
-
+                let typ = Box::new(parse_data_type(line));
                 DataType::Conditional { field, bit, typ }
             }
         }
@@ -262,12 +214,12 @@ fn parse_data_type(line: &str, poly_type: Option<&str>) -> DataType {
     }
 }
 
-fn parse_field(line: &str, poly_type: Option<&str>) -> Field {
+fn parse_field(line: &str) -> Field {
     let (name, line) = line.split_once(":")
         .unwrap();
 
     let name = name.to_string();
-    let typ = parse_data_type(line, poly_type);
+    let typ = parse_data_type(line);
 
     Field { name, typ }
 }

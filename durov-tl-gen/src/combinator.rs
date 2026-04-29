@@ -59,30 +59,17 @@ const RESERVED_KEYWORDS: &[&str] = &[
     "gen",
 ];
 
-struct Polymorphic {
-    name: String,
-    function: bool,
-}
-
 impl Write for Combinator {
     fn write(&self, writer: &mut Writer, context: &mut Context) {
-        let poly = self.iter_data_types()
-            .find_map(|typ| match typ {
-                DataType::Polymorphic(name) => Some(Polymorphic {
-                    name: name.clone(),
-                    function: false,
-                }),
-                DataType::PolymorphicFunction(name) => Some(Polymorphic {
-                    name: name.clone(),
-                    function: true,
-                }),
-                _ => None,
-            });
+        let has_generic = self.fields.iter()
+            .any(|f| f.typ == DataType::Function);
 
         writer.indent_write("#[derive(Debug, Clone, PartialEq)]\n");
         writer.indent_write("pub struct ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, &poly, true, &[]);
+        if has_generic {
+            writer.raw_write("<F>");
+        }
         writer.raw_write(" {\n");
         writer.add_indent();
         for field in &self.fields {
@@ -99,10 +86,14 @@ impl Write for Combinator {
         writer.indent_write("}\n\n");
 
         writer.indent_write("impl");
-        write_polymorphic(writer, &poly, true, &[]);
+        if has_generic {
+            writer.raw_write("<F>");
+        }
         writer.raw_write(" crate::Identify for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, &poly, false, &[]);
+        if has_generic {
+            writer.raw_write("<F>");
+        }
         writer.raw_write(" {\n");
         writer.add_indent();
         writer.indent_write("const ID: i32 = ");
@@ -113,10 +104,14 @@ impl Write for Combinator {
 
         if self.typ == CombinatorType::Function {
             writer.indent_write("impl");
-            write_polymorphic(writer, &poly, true, &[]);
+            if has_generic {
+                writer.raw_write("<F: crate::Call>");
+            }
             writer.raw_write(" crate::Call for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
-            write_polymorphic(writer, &poly, false, &[]);
+            if has_generic {
+                writer.raw_write("<F>");
+            }
             writer.raw_write(" {\n");
             writer.add_indent();
             writer.indent_write("type Result = ");
@@ -127,10 +122,14 @@ impl Write for Combinator {
         }
 
         writer.indent_write("impl");
-        write_polymorphic(writer, &poly, true, &["crate::serialize::Serialize"]);
+        if has_generic {
+            writer.raw_write("<F: crate::serialize::Serialize>");
+        }
         writer.raw_write(" crate::serialize::Serialize for ");
         writer.raw_write(&self.name.name.to_case(Case::Pascal));
-        write_polymorphic(writer, &poly, false, &[]);
+        if has_generic {
+            writer.raw_write("<F>");
+        }
         writer.raw_write(" {\n");
         writer.add_indent();
         writer.indent_write("fn serialize(&self, ");
@@ -143,43 +142,46 @@ impl Write for Combinator {
             writer.indent_write("<Self as crate::Identify>::ID.serialize(dst);\n");
         }
         for field in &self.fields {
-            if matches!(field.typ, DataType::Condition) {
-                let cond_fields = collect_conditional_fields(&self.fields, &field.name);
-                writer.indent_write("{ 0 ");
-                if !cond_fields.is_empty() {
-                    writer.raw_write("| ");
-                }
-                for (idx, (name, bit, bool)) in cond_fields.iter().enumerate() {
-                    writer.raw_write("(self.");
-                    writer.raw_write(&no_reserved_keyword(name));
-                    if !bool {
-                        writer.raw_write(".is_some()");
-                    }
-                    writer.raw_write(" as i32) << ");
-                    writer.raw_write(&bit.to_string());
-                    writer.raw_write(" ");
-                    if idx + 1 < cond_fields.len() {
+            match field.typ {
+                DataType::Condition => {
+                    let cond_fields = collect_conditional_fields(&self.fields, &field.name);
+                    writer.indent_write("{ 0 ");
+                    if !cond_fields.is_empty() {
                         writer.raw_write("| ");
                     }
+                    for (idx, (name, bit, bool)) in cond_fields.iter().enumerate() {
+                        writer.raw_write("(self.");
+                        writer.raw_write(&no_reserved_keyword(name));
+                        if !bool {
+                            writer.raw_write(".is_some()");
+                        }
+                        writer.raw_write(" as i32) << ");
+                        writer.raw_write(&bit.to_string());
+                        writer.raw_write(" ");
+                        if idx + 1 < cond_fields.len() {
+                            writer.raw_write("| ");
+                        }
+                    }
+                    writer.raw_write("}.serialize(dst);\n");
                 }
-                writer.raw_write("}.serialize(dst);\n");
-                continue;
-            }
-            if matches!(field.typ, DataType::Conditional { .. }) {
-                writer.indent_write("if let Some(");
-                writer.raw_write(&field.name);
-                writer.raw_write("_) = &self.");
-                writer.raw_write(&no_reserved_keyword(&field.name));
-                writer.raw_write(" {\n");
-                writer.add_indent();
-                writer.indent_write(&field.name);
-                writer.raw_write("_.serialize(dst);\n");
-                writer.subtract_indent();
-                writer.indent_write("}\n");
-            } else if !matches!(field.typ, DataType::ConditionalTrue { .. }) {
-                writer.indent_write("self.");
-                writer.raw_write(&no_reserved_keyword(&field.name));
-                writer.raw_write(".serialize(dst);\n");
+                DataType::Conditional { .. } => {
+                    writer.indent_write("if let Some(");
+                    writer.raw_write(&field.name);
+                    writer.raw_write("_) = &self.");
+                    writer.raw_write(&no_reserved_keyword(&field.name));
+                    writer.raw_write(" {\n");
+                    writer.add_indent();
+                    writer.indent_write(&field.name);
+                    writer.raw_write("_.serialize(dst);\n");
+                    writer.subtract_indent();
+                    writer.indent_write("}\n");
+                }
+                DataType::ConditionalTrue { .. } => {}
+                _ => {
+                    writer.indent_write("self.");
+                    writer.raw_write(&no_reserved_keyword(&field.name));
+                    writer.raw_write(".serialize(dst);\n");
+                }
             }
         }
         writer.subtract_indent();
@@ -189,10 +191,8 @@ impl Write for Combinator {
 
         if self.typ == CombinatorType::Constructor {
             writer.indent_write("impl");
-            write_polymorphic(writer, &poly, true, &["crate::deserialize::Deserialize"]);
             writer.raw_write(" crate::deserialize::Deserialize for ");
             writer.raw_write(&self.name.name.to_case(Case::Pascal));
-            write_polymorphic(writer, &poly, false, &[]);
             writer.raw_write(" {\n");
             writer.add_indent();
             writer.indent_write("fn deserialize(");
@@ -248,31 +248,6 @@ impl Write for Combinator {
             writer.subtract_indent();
             writer.indent_write("}\n\n");
         }
-    }
-}
-
-fn write_polymorphic(writer: &mut Writer, poly: &Option<Polymorphic>, start: bool, traits: &[&str]) {
-    if let Some(poly) = poly {
-        writer.raw_write("<");
-        writer.raw_write(&poly.name);
-        if start {
-            if poly.function || !traits.is_empty() {
-                writer.raw_write(": ");
-            }
-            if poly.function {
-                writer.raw_write("crate::Call");
-                if !traits.is_empty() {
-                    writer.raw_write(" + ");
-                }
-            }
-            for (idx, t) in traits.iter().enumerate() {
-                writer.raw_write(t);
-                if idx + 1 < traits.len() {
-                    writer.raw_write(" + ");
-                }
-            }
-        }
-        writer.raw_write(">");
     }
 }
 

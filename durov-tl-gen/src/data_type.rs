@@ -25,12 +25,8 @@ impl Write for DataType {
             DataType::Int128 => writer.raw_write("crypto_bigint::I128"),
             DataType::Int256 => writer.raw_write("crypto_bigint::I256"),
             DataType::Defined(name) => name.write(writer, context),
-            DataType::Polymorphic(name) => writer.raw_write(name),
-            DataType::PolymorphicFunction(name) => writer.raw_write(name),
-            DataType::PolymorphicFunctionResult(name) => {
-                writer.raw_write(name);
-                writer.raw_write("::Result");
-            }
+            DataType::Function => writer.raw_write("F"),
+            DataType::FunctionResult => writer.raw_write("F::Result"),
             DataType::Condition => writer.raw_write("i32"),
             DataType::Conditional { typ, .. } => {
                 writer.raw_write("Option::<");
