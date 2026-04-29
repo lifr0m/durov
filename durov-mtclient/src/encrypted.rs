@@ -37,7 +37,7 @@ where
     }
 
     pub async fn connect(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error> {
-        let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
+        let stream = tcp::connect(&config.dc, config.proxy.as_ref()).await?;
         let transport = T::default();
         let protocol = Encrypted::new(auth_key, config.use_gzip);
         Ok(Self::new(stream, transport, protocol, config.updates))

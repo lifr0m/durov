@@ -1,4 +1,5 @@
 use crate::tl;
+use durov_mtclient::proxy::Proxy;
 
 pub struct Config {
     pub api_id: i32,
@@ -11,6 +12,7 @@ pub struct Config {
     pub lang_code: String,
     pub params: Option<tl::enums::JsonValue>,
     pub prod_dc: bool,
+    pub proxy: Option<Proxy>,
     pub use_compression: bool,
     pub updates: bool,
     pub catch_up: bool,
@@ -29,6 +31,7 @@ impl Config {
             lang_code: String::from("en"),
             params: None,
             prod_dc: true,
+            proxy: None,
             use_compression: true,
             updates: false,
             catch_up: false,

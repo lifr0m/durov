@@ -1,6 +1,7 @@
 pub mod plain;
 pub mod encrypted;
 pub mod config;
+pub mod proxy;
 mod tcp;
 
 use thiserror::Error;

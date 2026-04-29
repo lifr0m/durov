@@ -24,7 +24,7 @@ where
     T: Send + 'static,
 {
     pub async fn connect(config: MtConfig) -> Result<Self, Error> {
-        let stream = tcp::connect(&config.dc.host, config.dc.port).await?;
+        let stream = tcp::connect(&config.dc, config.proxy.as_ref()).await?;
         let transport = T::default();
         let protocol = Plain::new();
         Ok(Self { config, stream, transport, protocol })

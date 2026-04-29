@@ -109,7 +109,7 @@ async fn fresh_connect<T>(dc: Datacenter, config: &Config)
 where
     T: Transport + Send + 'static,
 {
-    let mt_config = MtConfig { dc, use_gzip: config.use_compression, updates: config.updates };
+    let mt_config = create_mt_config(config, dc);
     let client = PlainClient::connect(mt_config).await?;
     Ok(client.auth().await?)
 }
@@ -119,7 +119,7 @@ async fn authed_connect<T>(dc: Datacenter, auth_key: [u8; 256], config: &Config)
 where
     T: Transport + Send + 'static,
 {
-    let mt_config = MtConfig { dc, use_gzip: config.use_compression, updates: config.updates };
+    let mt_config = create_mt_config(config, dc);
     Ok(EncryptedClient::connect(mt_config, auth_key).await?)
 }
 
@@ -167,4 +167,13 @@ fn select_dc(config: tl::enums::Config, id: i32, prod: bool) -> Option<Datacente
                 pubkey: get_public_key(prod),
             })
         })
+}
+
+fn create_mt_config(config: &Config, dc: Datacenter) -> MtConfig {
+    MtConfig {
+        dc,
+        proxy: config.proxy.clone(),
+        use_gzip: config.use_compression,
+        updates: config.updates,
+    }
 }
