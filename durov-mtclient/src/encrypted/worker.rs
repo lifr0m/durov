@@ -4,7 +4,7 @@ use crate::encrypted::receiver::Receiver;
 use crate::encrypted::salt::FutureSalts;
 use crate::encrypted::sender::Sender;
 use durov_mtproto::protocols::encrypted::object::{deserialize_box, DeserializeBox, PackObject, UnpackObject};
-use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult};
+use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult, UnpackParams};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
 use durov_tl_types::buffer::Buffer;
@@ -183,9 +183,8 @@ impl<T: Transport> Worker<T> {
     fn process_recv_buf(&mut self) -> Result<(), Error> {
         match self.transport.unpack(&mut self.receiver.buf) {
             Ok(()) => {
-                let objects = self.protocol.unpack(
-                    &mut self.receiver.buf,
-                    &[
+                let params = UnpackParams {
+                    list: &[
                         deserialize_box::<tl::enums::NewSession>,
                         deserialize_box::<tl::enums::FutureSalts>,
                         deserialize_box::<tl::enums::BadMsgNotification>,
@@ -193,14 +192,15 @@ impl<T: Transport> Worker<T> {
                         deserialize_box::<tl::enums::Pong>,
                         deserialize_box::<api_tl::enums::Updates>,
                     ],
-                    |msg_id| {
+                    resolve: |msg_id| {
                         self.call_map.get(&msg_id)
                             .map(|call| call.deserialize)
                     },
-                )?;
+                };
+                let list = self.protocol.unpack(&mut self.receiver.buf, params)?;
 
-                for obj in objects {
-                    self.process_object(obj.msg_id, obj.object);
+                for unpacked in list {
+                    self.process_object(unpacked.msg_id, unpacked.object);
                 }
 
                 self.receiver.buf.clear();

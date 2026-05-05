@@ -25,6 +25,14 @@ const SKIP_GZIP: &[i32] = &[
     durov_tl_types::schemas::api::functions::upload::SaveBigFilePart::ID,
 ];
 
+pub struct UnpackParams<R>
+where
+    R: Fn(i64) -> Option<DeserializeBox>,
+{
+    pub list: &'static [DeserializeBox],
+    pub resolve: R,
+}
+
 pub struct Unpacked {
     pub msg_id: i64,
     pub object: UnpackObject,
@@ -201,12 +209,11 @@ impl Encrypted {
         }
     }
 
-    pub fn unpack(
-        &mut self,
-        buf: &mut Buffer,
-        deserialize_list: &[DeserializeBox],
-        get_deserialize: impl Fn(i64) -> Option<DeserializeBox>,
-    ) -> Result<Vec<Unpacked>, Error> {
+    pub fn unpack<R>(&mut self, buf: &mut Buffer, params: UnpackParams<R>)
+        -> Result<Vec<Unpacked>, Error>
+    where
+        R: Fn(i64) -> Option<DeserializeBox>,
+    {
         debug_bytes("protocol [encrypted] (unpack) [encrypted]", buf);
 
         if buf.len() < Self::ENCRYPTED {
@@ -269,20 +276,19 @@ impl Encrypted {
         }
 
         let mut cur = Cursor::new(&buf[Self::DECRYPTED..]);
-        self.unpack_message(&mut cur, deserialize_list, &get_deserialize)
+        self.unpack_message(&mut cur, &params)
     }
 
-    fn unpack_message(
-        &mut self,
-        src: &mut Cursor,
-        deserialize_list: &[DeserializeBox],
-        get_deserialize: &impl Fn(i64) -> Option<DeserializeBox>,
-    ) -> Result<Vec<Unpacked>, Error> {
+    fn unpack_message<R>(&mut self, src: &mut Cursor, params: &UnpackParams<R>)
+        -> Result<Vec<Unpacked>, Error>
+    where
+        R: Fn(i64) -> Option<DeserializeBox>,
+    {
         let msg_id = i64::deserialize(src)?;
         let _seq = i32::deserialize(src)?;
         let len = i32::deserialize(src)? as usize;
 
-        let end = src.tell() + len;
+        let next = src.tell() + len;
         let id = i32::deserialize(src)?;
 
         if let Err(err) = check_msg_id(
@@ -294,7 +300,8 @@ impl Encrypted {
             return match err {
                 Error::IgnoreThisMessage => {
                     log::warn!("ignoring message: {msg_id}");
-                    Ok(skip_message(src, end))
+                    skip_message(src, next);
+                    Ok(Vec::new())
                 }
                 _ => Err(err),
             };
@@ -306,11 +313,7 @@ impl Encrypted {
 
                 let mut objects = Vec::new();
                 for _ in 0..len {
-                    let chunk = self.unpack_message(
-                        src,
-                        deserialize_list,
-                        get_deserialize,
-                    )?;
+                    let chunk = self.unpack_message(src, params)?;
                     objects.extend(chunk);
                 }
                 Ok(objects)
@@ -318,9 +321,10 @@ impl Encrypted {
             RPC_RESULT_ID => {
                 let req_msg_id = i64::deserialize(src)?;
 
-                let Some(deserialize) = get_deserialize(req_msg_id) else {
+                let Some(deserialize) = (params.resolve)(req_msg_id) else {
                     log::warn!("received response for unknown request: {req_msg_id}");
-                    return Ok(skip_message(src, end));
+                    skip_message(src, next);
+                    return Ok(Vec::new());
                 };
                 let result = ungzip(src, |src| {
                     select_deserialize(src, &[
@@ -336,12 +340,13 @@ impl Encrypted {
                 src.seek(Seek::Backward(4));
 
                 match ungzip(src, |src| {
-                    select_deserialize(src, deserialize_list)
+                    select_deserialize(src, params.list)
                 }) {
                     Ok(object) => Ok(vec![Unpacked { msg_id, object }]),
                     Err(deserialize::Error::IdMismatch { .. }) => {
                         log::warn!("received unknown object: {id:x}");
-                        Ok(skip_message(src, end))
+                        skip_message(src, next);
+                        Ok(Vec::new())
                     }
                     Err(err) => Err(err.into()),
                 }
@@ -350,9 +355,8 @@ impl Encrypted {
     }
 }
 
-fn skip_message(src: &mut Cursor, end: usize) -> Vec<Unpacked> {
-    src.seek(Seek::Position(end));
-    vec![]
+fn skip_message(src: &mut Cursor, next: usize) {
+    src.seek(Seek::Position(next));
 }
 
 fn ungzip<F>(src: &mut Cursor, deserialize: F) -> Result<UnpackObject, deserialize::Error>

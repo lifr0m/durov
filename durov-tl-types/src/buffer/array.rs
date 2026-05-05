@@ -19,7 +19,7 @@ impl Array {
     }
 
     pub fn alloc(len: usize) -> Self {
-        assert!(len > 0);
+        assert_ne!(len, 0);
 
         let layout = Self::layout(len);
         let ptr = unsafe { alloc::alloc(layout) };
@@ -39,7 +39,7 @@ impl Array {
 
 impl Drop for Array {
     fn drop(&mut self) {
-        if self.len > 0 {
+        if self.len != 0 {
             let layout = Self::layout(self.len);
             unsafe { alloc::dealloc(self.ptr, layout) };
         }
