@@ -10,8 +10,8 @@ crypto-bigint = { version = "0.7", features = ["alloc", "getrandom"] }
 crypto-primes = "0.7"
 rand = "0.10"
 rsa = { version = "=0.10.0-rc.18", features = ["hazmat"] }
-log = "0.4"
 flate2 = "1"
+tracing = "0.1"
 
 [features]
 fast-buf = ["durov-tl-types/fast-buf"]

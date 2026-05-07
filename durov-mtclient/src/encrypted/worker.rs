@@ -84,8 +84,8 @@ impl<T: Transport> Worker<T> {
         loop {
             match self.step().await {
                 Ok(()) => continue,
-                Err(Error::Stop) => log::info!("worker stopped"),
-                Err(err) => log::error!("worker: {err}"),
+                Err(Error::Stop) => tracing::info!("worker stopped"),
+                Err(err) => tracing::error!("worker: {err}"),
             }
             break;
         }
@@ -293,11 +293,11 @@ impl<T: Transport> Worker<T> {
     fn apply_bad_msg_notification(&mut self, msg_id: i64, code: i32) {
         if let Some(call) = self.call_map.remove(&msg_id) {
             self.on_call(call);
-            log::warn!("received bad msg notification for request: {code}");
+            tracing::warn!(code, "received bad msg notification for request");
         } else if code == 48 && !self.synced_salt {
             self.synced_salt = true;
         } else {
-            log::warn!("received bad msg notification for service message or unknown request: {code}");
+            tracing::warn!(code, "received bad msg notification for service message or unknown request");
         }
     }
 
@@ -319,7 +319,7 @@ impl<T: Transport> Worker<T> {
         match object.downcast::<api_tl::enums::Updates>() {
             Ok(updates) => match &self.updates_tx {
                 Some(updates_tx) => { updates_tx.send(*updates).ok(); }
-                None => log::warn!("server sent updates while in no-updates mode"),
+                None => tracing::warn!("server sent updates while in no-updates mode"),
             }
             Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }

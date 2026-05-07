@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 pub fn debug_bytes(comment: &str, data: &[u8]) {
-    if !log::log_enabled!(log::Level::Debug) {
+    if !tracing::enabled!(tracing::Level::DEBUG) {
         return;
     }
     let mut string = comment.to_string();
@@ -13,5 +13,5 @@ pub fn debug_bytes(comment: &str, data: &[u8]) {
         write!(&mut string, "{byte:02X} ")
             .unwrap();
     }
-    log::debug!("{string}");
+    tracing::debug!("{string}");
 }

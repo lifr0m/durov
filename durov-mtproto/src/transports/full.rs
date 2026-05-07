@@ -1,5 +1,5 @@
 use crate::crypto;
-use crate::log::debug_bytes;
+use crate::tracing::debug_bytes;
 use crate::transports::{Error, Transport};
 use durov_tl_types::buffer::Buffer;
 

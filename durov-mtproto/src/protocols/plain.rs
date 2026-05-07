@@ -1,8 +1,8 @@
-use crate::log::debug_bytes;
 use crate::protocols::check::{check_auth_key_id, check_msg_id, check_msg_len};
 use crate::protocols::serde::serialize_len_first;
 use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
+use crate::tracing::debug_bytes;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::serialize::Serialize;

@@ -104,7 +104,7 @@ where
                         return Err(Error::AuthFailed);
                     }
                     prev_auth_key_aux_id = Some(auth_key_aux_id);
-                    log::warn!("restarting auth step 4: attempt {attempt}");
+                    tracing::warn!(attempt, "restarting auth step 4");
                 }
                 Err(err) => return Err(err.into()),
             }

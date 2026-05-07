@@ -3,4 +3,4 @@ pub mod protocols;
 pub mod datacenter;
 pub mod auth;
 mod crypto;
-mod log;
+mod tracing;

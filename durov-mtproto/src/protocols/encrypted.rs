@@ -3,13 +3,13 @@ mod gzip;
 mod unpack;
 
 use crate::crypto;
-use crate::log::debug_bytes;
 use crate::protocols::check::{check_auth_key_id, check_msg_id, check_msg_len};
 use crate::protocols::constants::*;
 use crate::protocols::plain::Plain;
 use crate::protocols::serde::serialize_len_first;
 use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
+use crate::tracing::debug_bytes;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::cursor::{Cursor, Seek};
 use durov_tl_types::deserialize::Deserialize;
@@ -19,6 +19,7 @@ use durov_tl_types::{deserialize, Identify};
 use gzip::gzip_encode;
 use object::{deserialize_object, DeserializeObject, PackObject, UnpackObject};
 use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
 use unpack::unpack_object;
 
 const SKIP_GZIP: &[i32] = &[
@@ -95,7 +96,7 @@ impl Encrypted {
 
 macro_rules! skip_msg {
     ($src:expr, $end:expr, $($arg:tt)+) => {
-        log::warn!($($arg)+);
+        tracing::warn!($($arg)+);
         $src.seek(Seek::Position($end));
         return Ok(Vec::new());
     };

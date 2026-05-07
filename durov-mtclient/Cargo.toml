@@ -10,7 +10,7 @@ fast-socks5 = "1"
 durov-mtproto = { path = "../durov-mtproto" }
 durov-tl-types = { path = "../durov-tl-types" }
 rand = "0.10"
-log = "0.4"
+tracing = "0.1"
 
 [features]
 fast-buf = ["durov-mtproto/fast-buf"]

@@ -7,8 +7,8 @@ type Client = durov_client::client::Client<
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    env_logger::Builder::new()
-        .filter(None, log::LevelFilter::Warn)
+    tracing_subscriber::fmt()
+        .with_env_filter("warn")
         .init();
 
     let api_id = 0; // ENTER YOUR API ID

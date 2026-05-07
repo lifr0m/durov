@@ -139,7 +139,7 @@ fn extract_sequence(req: &dyn Any, resp: &str) -> Sequence {
 
     // Unknown
 
-    log::warn!("functions which return {resp} have changed, can't detect sequence");
+    tracing::warn!("functions which return {resp} have changed, can't detect sequence");
     Sequence::Unknown
 }
 

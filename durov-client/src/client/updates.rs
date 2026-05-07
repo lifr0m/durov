@@ -120,7 +120,7 @@ where
                     return Ok(updates);
                 }
                 None => {
-                    log::error!("failed to recover channel (id: {id}) gap: don't have peer information");
+                    tracing::error!(id, "failed to recover channel gap, don't have peer information");
                     updater.recovering.remove(&id);
                     updater.channel_queues.remove(&id);
                 }
