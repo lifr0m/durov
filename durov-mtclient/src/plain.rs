@@ -62,30 +62,14 @@ where
     }
 
     pub async fn auth(mut self) -> Result<(EncryptedClient<T>, [u8; 256]), Error> {
-        let mut attempt = 0;
-        let (step1, step2, step3) = loop {
-            attempt += 1;
+        let step1 = auth::step1();
+        let res = self.call(&step1.req).await?;
 
-            let step1 = auth::step1();
-            let res = self.call(&step1.req).await?;
+        let step2 = auth::step2(res, step1.nonce, &self.config.dc)?;
+        let res = self.call(&step2.req).await?;
 
-            let step2 = auth::step2(res, step1.nonce, &self.config.dc)?;
-            let res = self.call(&step2.req).await?;
-
-            match auth::step3(res, step1.nonce, step2.server_nonce, step2.new_nonce) {
-                Ok(step3) => {
-                    self.protocol.set_server_time(step3.server_time as f64);
-                    break (step1, step2, step3);
-                }
-                Err(auth::Error::Restart) => {
-                    if attempt >= 3 {
-                        return Err(Error::AuthFailed);
-                    }
-                    log::warn!("restarting auth: attempt {attempt}");
-                }
-                Err(err) => return Err(err.into()),
-            }
-        };
+        let step3 = auth::step3(res, step1.nonce, step2.server_nonce, step2.new_nonce)?;
+        self.protocol.set_server_time(step3.server_time as f64);
 
         let mut attempt = 0;
         let mut prev_auth_key_aux_id = None;

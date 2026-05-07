@@ -12,9 +12,12 @@ pub type PackObject = Box<dyn PackObjectTrait + Send>;
 
 pub type UnpackObject = Box<dyn Any + Send>;
 
-pub type DeserializeBox = fn(&mut Cursor) -> Result<UnpackObject, deserialize::Error>;
+pub type DeserializeObject<'a> = &'a (
+dyn Fn(&mut Cursor) -> Result<UnpackObject, deserialize::Error>
++ Sync
+);
 
-pub fn deserialize_box<T>(src: &mut Cursor) -> Result<UnpackObject, deserialize::Error>
+pub fn deserialize_object<T>(src: &mut Cursor) -> Result<UnpackObject, deserialize::Error>
 where
     T: Deserialize + Send + 'static,
 {

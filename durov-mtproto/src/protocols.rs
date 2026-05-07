@@ -13,9 +13,6 @@ pub enum Error {
     #[error("missing bytes")]
     MissingBytes,
 
-    #[error("deserialize: {0}")]
-    Deserialize(#[from] deserialize::Error),
-
     #[error("auth key id mismatch: expected {expected}, received {received}")]
     AuthKeyIdMismatch {
         expected: i64,
@@ -34,11 +31,11 @@ pub enum Error {
         received: i64,
     },
 
-    #[error("invalid length: {0}")]
-    InvalidLength(i32),
+    #[error("invalid msg length: {0}")]
+    InvalidMsgLength(i32),
 
-    #[error("length too big: expected at most {expected}, received {received}")]
-    LengthTooBig {
+    #[error("msg length too big: expected at most {expected}, received {received}")]
+    MsgLengthTooBig {
         expected: usize,
         received: usize,
     },
@@ -51,4 +48,7 @@ pub enum Error {
 
     #[error("ignore this message")]
     IgnoreThisMessage,
+
+    #[error("deserialize: {0}")]
+    Deserialize(#[from] deserialize::Error),
 }

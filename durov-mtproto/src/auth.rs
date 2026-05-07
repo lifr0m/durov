@@ -38,9 +38,6 @@ pub enum Error {
         received: Vec<i64>,
     },
 
-    #[error("restart handshake")]
-    Restart,
-
     #[error("retry starting from step 4")]
     RetryStep4 {
         auth_key_aux_id: i64,
@@ -135,16 +132,7 @@ pub fn step3(
     server_nonce: I128,
     new_nonce: I256,
 ) -> Result<Step3, Error> {
-    let res = match res {
-        tl::enums::ServerDhParams::ServerDhParamsOk(res) => res,
-        tl::enums::ServerDhParams::ServerDhParamsFail(res) => {
-            ensure_nonce_equal(nonce, res.nonce)?;
-            ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
-            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash, 0, 0)?;
-
-            return Err(Error::Restart);
-        }
-    };
+    let tl::enums::ServerDhParams::ServerDhParamsOk(res) = res;
 
     ensure_nonce_equal(nonce, res.nonce)?;
     ensure_server_nonce_equal(server_nonce, res.server_nonce)?;

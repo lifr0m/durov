@@ -3,7 +3,7 @@ use crate::encrypted::complications::redirect_updates;
 use crate::encrypted::receiver::Receiver;
 use crate::encrypted::salt::FutureSalts;
 use crate::encrypted::sender::Sender;
-use durov_mtproto::protocols::encrypted::object::{deserialize_box, DeserializeBox, PackObject, UnpackObject};
+use durov_mtproto::protocols::encrypted::object::{deserialize_object, DeserializeObject, PackObject, UnpackObject};
 use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult, UnpackParams};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
@@ -35,7 +35,7 @@ enum Error {
 pub struct CallData {
     pub body: PackObject,
     pub callback: flume::Sender<UnpackObject>,
-    pub deserialize: DeserializeBox,
+    pub deserialize: DeserializeObject<'static>,
 }
 
 pub struct Worker<T> {
@@ -185,14 +185,14 @@ impl<T: Transport> Worker<T> {
             Ok(()) => {
                 let params = UnpackParams {
                     list: &[
-                        deserialize_box::<tl::enums::NewSession>,
-                        deserialize_box::<tl::enums::FutureSalts>,
-                        deserialize_box::<tl::enums::BadMsgNotification>,
-                        deserialize_box::<tl::enums::MsgsAck>,
-                        deserialize_box::<tl::enums::Pong>,
-                        deserialize_box::<api_tl::enums::Updates>,
+                        &deserialize_object::<tl::enums::NewSession>,
+                        &deserialize_object::<tl::enums::FutureSalts>,
+                        &deserialize_object::<tl::enums::BadMsgNotification>,
+                        &deserialize_object::<tl::enums::MsgsAck>,
+                        &deserialize_object::<tl::enums::Pong>,
+                        &deserialize_object::<api_tl::enums::Updates>,
                     ],
-                    resolve: |msg_id| {
+                    resolve: &|msg_id| {
                         self.call_map.get(&msg_id)
                             .map(|call| call.deserialize)
                     },
@@ -215,8 +215,8 @@ impl<T: Transport> Worker<T> {
         Ok(())
     }
 
-    fn process_object(&mut self, msg_id: i64, body: UnpackObject) {
-        match body.downcast::<RpcResult>() {
+    fn process_object(&mut self, msg_id: i64, object: UnpackObject) {
+        match object.downcast::<RpcResult>() {
             Ok(mut rpc) => {
                 let call = self.call_map.remove(&rpc.req_msg_id)
                     .expect("this check should be done in protocol unpack flow");
@@ -226,12 +226,12 @@ impl<T: Transport> Worker<T> {
                 call.callback.send(rpc.result).ok();
                 self.ack.add(msg_id);
             }
-            Err(body) => self.process_new_session(msg_id, body),
+            Err(object) => self.process_new_session(msg_id, object),
         }
     }
 
-    fn process_new_session(&mut self, msg_id: i64, body: UnpackObject) {
-        match body.downcast::<tl::enums::NewSession>() {
+    fn process_new_session(&mut self, msg_id: i64, object: UnpackObject) {
+        match object.downcast::<tl::enums::NewSession>() {
             Ok(new) => {
                 let tl::enums::NewSession::NewSessionCreated(new) = *new;
 
@@ -243,12 +243,12 @@ impl<T: Transport> Worker<T> {
 
                 self.ack.add(msg_id);
             }
-            Err(body) => self.process_future_salts(msg_id, body),
+            Err(object) => self.process_future_salts(msg_id, object),
         }
     }
 
-    fn process_future_salts(&mut self, msg_id: i64, body: UnpackObject) {
-        match body.downcast::<tl::enums::FutureSalts>() {
+    fn process_future_salts(&mut self, msg_id: i64, object: UnpackObject) {
+        match object.downcast::<tl::enums::FutureSalts>() {
             Ok(future) => {
                 let tl::enums::FutureSalts::FutureSalts(mut future) = *future;
 
@@ -265,12 +265,12 @@ impl<T: Transport> Worker<T> {
                     self.salts.add(salt.salt, since);
                 }
             }
-            Err(body) => self.process_bad_msg_notification(msg_id, body),
+            Err(object) => self.process_bad_msg_notification(msg_id, object),
         }
     }
 
-    fn process_bad_msg_notification(&mut self, msg_id: i64, body: UnpackObject) {
-        match body.downcast::<tl::enums::BadMsgNotification>() {
+    fn process_bad_msg_notification(&mut self, msg_id: i64, object: UnpackObject) {
+        match object.downcast::<tl::enums::BadMsgNotification>() {
             Ok(bad) => {
                 match *bad {
                     tl::enums::BadMsgNotification::BadMsgNotification(bad) => {
@@ -286,7 +286,7 @@ impl<T: Transport> Worker<T> {
                     }
                 }
             }
-            Err(body) => self.process_messages_ack(body),
+            Err(object) => self.process_messages_ack(object),
         }
     }
 
@@ -301,22 +301,22 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn process_messages_ack(&mut self, body: UnpackObject) {
-        match body.downcast::<tl::enums::MsgsAck>() {
+    fn process_messages_ack(&mut self, object: UnpackObject) {
+        match object.downcast::<tl::enums::MsgsAck>() {
             Ok(_) => {}
-            Err(body) => self.process_pong(body),
+            Err(object) => self.process_pong(object),
         }
     }
 
-    fn process_pong(&mut self, body: UnpackObject) {
-        match body.downcast::<tl::enums::Pong>() {
+    fn process_pong(&mut self, object: UnpackObject) {
+        match object.downcast::<tl::enums::Pong>() {
             Ok(_) => {}
-            Err(body) => self.process_updates(body),
+            Err(object) => self.process_updates(object),
         }
     }
 
-    fn process_updates(&mut self, body: UnpackObject) {
-        match body.downcast::<api_tl::enums::Updates>() {
+    fn process_updates(&mut self, object: UnpackObject) {
+        match object.downcast::<api_tl::enums::Updates>() {
             Ok(updates) => match &self.updates_tx {
                 Some(updates_tx) => { updates_tx.send(*updates).ok(); }
                 None => log::warn!("server sent updates while in no-updates mode"),

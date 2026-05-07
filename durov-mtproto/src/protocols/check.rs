@@ -24,13 +24,13 @@ pub fn check_auth_key_id(auth_key_id: i64, packet_auth_key_id: i64) -> Result<()
 
 pub fn check_msg_len(len: i32, max_len: usize) -> Result<(), Error> {
     if len % 4 != 0 || len < 0 {
-        return Err(Error::InvalidLength(len));
+        return Err(Error::InvalidMsgLength(len));
     }
 
     let len = len as usize;
 
     if len > max_len {
-        return Err(Error::LengthTooBig {
+        return Err(Error::MsgLengthTooBig {
             expected: max_len,
             received: len,
         });
@@ -39,14 +39,12 @@ pub fn check_msg_len(len: i32, max_len: usize) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn check_msg_id(
-    time_diff: f64,
-    history: &mut BTreeSet<i64>,
-    msg_id: i64,
-    id: Option<i32>,
-) -> Result<(), Error> {
+pub fn check_msg_id(time_diff: f64, history: &mut BTreeSet<i64>, msg_id: i64, id: Option<i32>)
+    -> Result<(), Error>
+{
     ensure_time_sync(time_diff, msg_id, id)?;
     ensure_msg_id(history, msg_id)?;
+
     Ok(())
 }
 

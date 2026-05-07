@@ -1,4 +1,6 @@
 pub mod object;
+mod gzip;
+mod unpack;
 
 use crate::crypto;
 use crate::log::debug_bytes;
@@ -14,23 +16,20 @@ use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{deserialize, Identify};
-use flate2::bufread::{GzDecoder, GzEncoder};
-use flate2::Compression;
-use object::{deserialize_box, DeserializeBox, PackObject, UnpackObject};
+use gzip::gzip_encode;
+use object::{deserialize_object, DeserializeObject, PackObject, UnpackObject};
 use std::collections::BTreeSet;
-use std::io::Read;
+use unpack::unpack_object;
 
 const SKIP_GZIP: &[i32] = &[
     durov_tl_types::schemas::api::functions::upload::SaveFilePart::ID,
     durov_tl_types::schemas::api::functions::upload::SaveBigFilePart::ID,
 ];
 
-pub struct UnpackParams<R>
-where
-    R: Fn(i64) -> Option<DeserializeBox>,
-{
-    pub list: &'static [DeserializeBox],
-    pub resolve: R,
+#[derive(Copy, Clone)]
+pub struct UnpackParams<'a> {
+    pub list: &'static [DeserializeObject<'static>],
+    pub resolve: &'a dyn Fn(i64) -> Option<DeserializeObject<'static>>,
 }
 
 pub struct Unpacked {
@@ -94,6 +93,14 @@ impl Encrypted {
     }
 }
 
+macro_rules! skip_msg {
+    ($src:expr, $end:expr, $($arg:tt)+) => {
+        log::warn!($($arg)+);
+        $src.seek(Seek::Position($end));
+        return Ok(Vec::new());
+    };
+}
+
 impl Encrypted {
     const ENCRYPTED: usize = 8 + 16;
     const DECRYPTED: usize = Self::ENCRYPTED + 8 + 8;
@@ -144,9 +151,9 @@ impl Encrypted {
         MSG_CONTAINER_ID.serialize(buf);
         (objects.len() as i32).serialize(buf);
 
-        let mut message_ids = objects.iter()
+        let message_ids = objects.iter()
             .map(|obj| self.pack_object(buf, obj))
-            .collect::<Vec<_>>();
+            .collect();
 
         let len = buf.len() as i32;
         buf.extend_front(&len.to_le_bytes());
@@ -156,7 +163,6 @@ impl Encrypted {
 
         let msg_id = get_msg_id(self.time_diff);
         buf.extend_front(&msg_id.to_le_bytes());
-        message_ids.push(msg_id);
 
         message_ids
     }
@@ -176,11 +182,7 @@ impl Encrypted {
                 if serialized.len() > 255 {
                     let mut compressed = Buffer::new();
                     GZIP_PACKED_ID.serialize(&mut compressed);
-                    let level = Compression::default();
-                    let mut encoder = GzEncoder::new(serialized.as_ref(), level);
-                    let mut packed_data = Vec::new();
-                    encoder.read_to_end(&mut packed_data)
-                        .unwrap();
+                    let packed_data = gzip_encode(&serialized);
                     packed_data.serialize(&mut compressed);
 
                     if compressed.len() < serialized.len() {
@@ -209,10 +211,8 @@ impl Encrypted {
         }
     }
 
-    pub fn unpack<R>(&mut self, buf: &mut Buffer, params: UnpackParams<R>)
+    pub fn unpack(&mut self, buf: &mut Buffer, params: UnpackParams)
         -> Result<Vec<Unpacked>, Error>
-    where
-        R: Fn(i64) -> Option<DeserializeBox>,
     {
         debug_bytes("protocol [encrypted] (unpack) [encrypted]", buf);
 
@@ -276,62 +276,49 @@ impl Encrypted {
         }
 
         let mut cur = Cursor::new(&buf[Self::DECRYPTED..]);
-        self.unpack_message(&mut cur, &params)
+        self.unpack_message(&mut cur, params)
     }
 
-    fn unpack_message<R>(&mut self, src: &mut Cursor, params: &UnpackParams<R>)
+    fn unpack_message(&mut self, src: &mut Cursor, params: UnpackParams)
         -> Result<Vec<Unpacked>, Error>
-    where
-        R: Fn(i64) -> Option<DeserializeBox>,
     {
         let msg_id = i64::deserialize(src)?;
         let _seq = i32::deserialize(src)?;
         let len = i32::deserialize(src)? as usize;
 
-        let next = src.tell() + len;
+        let end = src.tell() + len;
+
         let id = i32::deserialize(src)?;
 
-        if let Err(err) = check_msg_id(
-            self.time_diff,
-            &mut self.msg_id_history,
-            msg_id,
-            Some(id),
-        ) {
-            return match err {
-                Error::IgnoreThisMessage => {
-                    log::warn!("ignoring message: {msg_id}");
-                    skip_message(src, next);
-                    Ok(Vec::new())
-                }
-                _ => Err(err),
-            };
+        match check_msg_id(self.time_diff, &mut self.msg_id_history, msg_id, Some(id)) {
+            Ok(()) => {}
+            Err(Error::IgnoreThisMessage) => {
+                skip_msg!(src, end, "ignoring message: {msg_id}");
+            }
+            Err(err) => return Err(err),
         }
 
         match id {
             MSG_CONTAINER_ID => {
-                let len = i32::deserialize(src)?;
+                let len = i32::deserialize(src)? as usize;
 
-                let mut objects = Vec::new();
+                let mut list = Vec::new();
                 for _ in 0..len {
                     let chunk = self.unpack_message(src, params)?;
-                    objects.extend(chunk);
+                    list.extend(chunk);
                 }
-                Ok(objects)
+                Ok(list)
             }
             RPC_RESULT_ID => {
                 let req_msg_id = i64::deserialize(src)?;
 
                 let Some(deserialize) = (params.resolve)(req_msg_id) else {
-                    log::warn!("received response for unknown request: {req_msg_id}");
-                    skip_message(src, next);
-                    return Ok(Vec::new());
+                    skip_msg!(src, end, "received response for unknown request: {req_msg_id}");
                 };
-                let result = ungzip(src, |src| {
-                    select_deserialize(src, &[
-                        deserialize_box::<tl::enums::RpcError>,
-                        deserialize,
-                    ])
-                })?;
+                let result = unpack_object(src, &[
+                    deserialize,
+                    &deserialize_object::<tl::enums::RpcError>,
+                ])?;
 
                 let object = Box::new(RpcResult { req_msg_id, result });
                 Ok(vec![Unpacked { msg_id, object }])
@@ -339,64 +326,14 @@ impl Encrypted {
             _ => {
                 src.seek(Seek::Backward(4));
 
-                match ungzip(src, |src| {
-                    select_deserialize(src, params.list)
-                }) {
+                match unpack_object(src, params.list) {
                     Ok(object) => Ok(vec![Unpacked { msg_id, object }]),
                     Err(deserialize::Error::IdMismatch { .. }) => {
-                        log::warn!("received unknown object: {id:x}");
-                        skip_message(src, next);
-                        Ok(Vec::new())
+                        skip_msg!(src, end, "received unknown object: {id:x}");
                     }
                     Err(err) => Err(err.into()),
                 }
             }
         }
-    }
-}
-
-fn skip_message(src: &mut Cursor, next: usize) {
-    src.seek(Seek::Position(next));
-}
-
-fn ungzip<F>(src: &mut Cursor, deserialize: F) -> Result<UnpackObject, deserialize::Error>
-where
-    F: Fn(&mut Cursor) -> Result<UnpackObject, deserialize::Error>,
-{
-    let id = i32::deserialize(src)?;
-
-    match id {
-        GZIP_PACKED_ID => {
-            let packed_data = Vec::<u8>::deserialize(src)?;
-            let mut decoder = GzDecoder::new(packed_data.as_ref());
-            let mut data = Vec::new();
-            decoder.read_to_end(&mut data)
-                .map_err(deserialize::Error::GzipDecode)?;
-            let mut cur = Cursor::new(&data);
-            deserialize(&mut cur)
-        }
-        _ => {
-            src.seek(Seek::Backward(4));
-
-            deserialize(src)
-        }
-    }
-}
-
-fn select_deserialize(src: &mut Cursor, list: &[DeserializeBox])
-    -> Result<UnpackObject, deserialize::Error>
-{
-    match list[0](src) {
-        Ok(object) => Ok(object),
-        Err(deserialize::Error::IdMismatch { .. }) => {
-            src.seek(Seek::Backward(4));
-
-            if list.len() <= 2 {
-                list[1](src)
-            } else {
-                select_deserialize(src, &list[1..])
-            }
-        }
-        Err(err) => Err(err),
     }
 }

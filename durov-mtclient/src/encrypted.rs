@@ -7,7 +7,7 @@ mod complications;
 
 use crate::config::MtConfig;
 use crate::{tcp, Error};
-use durov_mtproto::protocols::encrypted::object::{deserialize_box, UnpackObject};
+use durov_mtproto::protocols::encrypted::object::{deserialize_object, UnpackObject};
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::transports::Transport;
 use durov_tl_types::deserialize::Deserialize;
@@ -53,7 +53,7 @@ where
         let call = CallData {
             body: Box::new(func),
             callback: tx,
-            deserialize: deserialize_box::<F::Result>,
+            deserialize: &deserialize_object::<F::Result>,
         };
         if self.call_tx.send(call).is_err() {
             return Err(Error::Connection);

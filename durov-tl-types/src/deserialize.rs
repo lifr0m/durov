@@ -13,7 +13,7 @@ pub enum Error {
     #[error("string decode: {0}")]
     StringDecode(#[from] std::string::FromUtf8Error),
 
-    #[error("mismatching id: expected {expected:?}, received {received}")]
+    #[error("id mismatch: expected {expected:?}, received {received}")]
     IdMismatch {
         expected: &'static [i32],
         received: i32,
