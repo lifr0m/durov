@@ -22,7 +22,7 @@ use worker::{CallData, Worker};
 pub struct EncryptedClient<T> {
     call_tx: flume::Sender<CallData>,
     updates_rx: flume::Receiver<api_tl::enums::Updates>,
-    transport: PhantomData<T>,
+    _transport: PhantomData<T>,
 }
 
 impl<T: Transport> EncryptedClient<T>
@@ -33,7 +33,7 @@ where
         let (call_tx, call_rx) = flume::unbounded();
         let (updates_tx, updates_rx) = flume::unbounded();
         tokio::spawn(Worker::new(stream, transport, protocol, call_rx, updates.then_some(updates_tx)).run());
-        Self { call_tx, updates_rx, transport: PhantomData }
+        Self { call_tx, updates_rx, _transport: PhantomData }
     }
 
     pub async fn connect(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error> {

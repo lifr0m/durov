@@ -43,54 +43,55 @@ pub struct RpcResult {
     pub result: UnpackObject,
 }
 
+#[derive(Clone)]
 pub struct Encrypted {
-    time_diff: f64,
-    msg_id_history: BTreeSet<i64>,
+    time_diff: Arc<Mutex<f64>>,
+    msg_id_history: Arc<Mutex<BTreeSet<i64>>>,
     auth_key: [u8; 256],
     auth_key_id: i64,
-    salt: i64,
+    salt: Arc<Mutex<i64>>,
     session_id: i64,
-    msg_seq: i32,
+    msg_seq: Arc<Mutex<i32>>,
     use_gzip: bool,
 }
 
 impl Encrypted {
     pub fn new(auth_key: [u8; 256], use_gzip: bool) -> Self {
         Self {
-            time_diff: 0.0,
-            msg_id_history: BTreeSet::new(),
+            time_diff: Arc::new(Mutex::new(0.0)),
+            msg_id_history: Arc::new(Mutex::new(BTreeSet::new())),
             auth_key,
             auth_key_id: crypto::compute_auth_key_id(&auth_key),
-            salt: 0,
+            salt: Arc::new(Mutex::new(0)),
             session_id: rand::random(),
-            msg_seq: 0,
+            msg_seq: Arc::new(Mutex::new(0)),
             use_gzip,
         }
     }
 
     pub fn from_plain(protocol: Plain, auth_key: [u8; 256], salt: i64, use_gzip: bool) -> Self {
         Self {
-            time_diff: protocol.time_diff,
-            msg_id_history: protocol.msg_id_history,
+            time_diff: Arc::new(Mutex::new(protocol.time_diff)),
+            msg_id_history: Arc::new(Mutex::new(protocol.msg_id_history)),
             auth_key,
             auth_key_id: crypto::compute_auth_key_id(&auth_key),
-            salt,
+            salt: Arc::new(Mutex::new(salt)),
             session_id: rand::random(),
-            msg_seq: 0,
+            msg_seq: Arc::new(Mutex::new(0)),
             use_gzip,
         }
     }
 
     pub fn is_ready(&self) -> bool {
-        self.salt != 0
+        *self.salt.lock().unwrap() != 0
     }
 
-    pub fn set_server_time(&mut self, server_time: f64) {
-        self.time_diff = server_time - get_now();
+    pub fn set_server_time(&self, server_time: f64) {
+        *self.time_diff.lock().unwrap() = server_time - get_now();
     }
 
-    pub fn set_salt(&mut self, salt: i64) {
-        self.salt = salt;
+    pub fn set_salt(&self, salt: i64) {
+        *self.salt.lock().unwrap() = salt;
     }
 }
 
@@ -107,14 +108,14 @@ impl Encrypted {
     const DECRYPTED: usize = Self::ENCRYPTED + 8 + 8;
     const MESSAGE: usize = Self::DECRYPTED + 8 + 4 + 4;
 
-    pub fn pack(&mut self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
+    pub fn pack(&self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
         let message_ids = match objects.len() {
             1 => self.pack_one_object(buf, objects[0]),
             _ => self.pack_many_objects(buf, objects),
         };
 
         buf.extend_front(&self.session_id.to_le_bytes());
-        buf.extend_front(&self.salt.to_le_bytes());
+        buf.extend_front(&self.salt.lock().unwrap().to_le_bytes());
 
         debug_bytes("protocol [encrypted] (pack) [decrypted]", buf);
 
@@ -142,13 +143,13 @@ impl Encrypted {
         message_ids
     }
 
-    fn pack_one_object(&mut self, buf: &mut Buffer, object: &PackObject) -> Vec<i64> {
+    fn pack_one_object(&self, buf: &mut Buffer, object: &PackObject) -> Vec<i64> {
         let msg_id = self.pack_object(buf, object);
 
         vec![msg_id]
     }
 
-    fn pack_many_objects(&mut self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
+    fn pack_many_objects(&self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
         MSG_CONTAINER_ID.serialize(buf);
         (objects.len() as i32).serialize(buf);
 
@@ -162,14 +163,14 @@ impl Encrypted {
         let seq = self.next_msg_seq(false);
         buf.extend_front(&seq.to_le_bytes());
 
-        let msg_id = get_msg_id(self.time_diff);
+        let msg_id = get_msg_id(*self.time_diff.lock().unwrap());
         buf.extend_front(&msg_id.to_le_bytes());
 
         message_ids
     }
 
-    fn pack_object(&mut self, buf: &mut Buffer, object: &PackObject) -> i64 {
-        let msg_id = get_msg_id(self.time_diff);
+    fn pack_object(&self, buf: &mut Buffer, object: &PackObject) -> i64 {
+        let msg_id = get_msg_id(*self.time_diff.lock().unwrap());
         msg_id.serialize(buf);
 
         let content = durov_tl_types::schemas::api::ALL_IDS.contains(&object.id());
@@ -202,17 +203,19 @@ impl Encrypted {
         msg_id
     }
 
-    fn next_msg_seq(&mut self, content: bool) -> i32 {
+    fn next_msg_seq(&self, content: bool) -> i32 {
+        let mut msg_seq = self.msg_seq.lock().unwrap();
+
         if content {
-            let msg_seq = self.msg_seq * 2 + 1;
-            self.msg_seq += 1;
-            msg_seq
+            let new_msg_seq = *msg_seq * 2 + 1;
+            *msg_seq += 1;
+            new_msg_seq
         } else {
-            self.msg_seq * 2
+            *msg_seq * 2
         }
     }
 
-    pub fn unpack(&mut self, buf: &mut Buffer, params: UnpackParams)
+    pub fn unpack(&self, buf: &mut Buffer, params: UnpackParams)
         -> Result<Vec<Unpacked>, Error>
     {
         debug_bytes("protocol [encrypted] (unpack) [encrypted]", buf);
@@ -280,7 +283,7 @@ impl Encrypted {
         self.unpack_message(&mut cur, params)
     }
 
-    fn unpack_message(&mut self, src: &mut Cursor, params: UnpackParams)
+    fn unpack_message(&self, src: &mut Cursor, params: UnpackParams)
         -> Result<Vec<Unpacked>, Error>
     {
         let msg_id = i64::deserialize(src)?;
@@ -291,7 +294,12 @@ impl Encrypted {
 
         let id = i32::deserialize(src)?;
 
-        match check_msg_id(self.time_diff, &mut self.msg_id_history, msg_id, Some(id)) {
+        match check_msg_id(
+            *self.time_diff.lock().unwrap(),
+            &mut self.msg_id_history.lock().unwrap(),
+            msg_id,
+            Some(id),
+        ) {
             Ok(()) => {}
             Err(Error::IgnoreThisMessage) => {
                 skip_msg!(src, end, "ignoring message: {msg_id}");
