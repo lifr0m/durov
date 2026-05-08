@@ -2,7 +2,7 @@
 
 This library is a Telegram MTProto high-level client.
 
-Use `durov-client` crate as the main crate.
+Use `durov-client` crate as the main crate. See examples.
 
 Project includes default implementation of telethon v7 session storage.
 So sessions created by this project and telethon are compatible.
@@ -11,10 +11,8 @@ So sessions created by this project and telethon are compatible.
 
 - No `unsafe` code.
 - Concurrent by nature, shareable between tasks. `Client` implements `Clone`.
-- Convenient work with RPC errors (`Error::is`, `Error::message`, `Error::parse`).
-- Lock mechanisms are used only where necessary.
-- No needless bytes copying. Library uses its own contiguous deque buffer implementation to efficiently work with bytes.
-  Serialization happens only at the end to the buffer which is written directly to the stream.
+- Optimized for very high-load bots. MTProto packing/unpacking is parallelized using all cpu cores.
+- Minimum allocations and copying. Library uses its own contiguous deque buffer.
 - Project complies with all [Telegram Security Guidelines](https://core.telegram.org/mtproto/security_guidelines).
 
 # Feature flags
