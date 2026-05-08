@@ -27,6 +27,11 @@ const SKIP_GZIP: &[i32] = &[
     durov_tl_types::schemas::api::functions::upload::SaveBigFilePart::ID,
 ];
 
+pub struct Packed {
+    pub container_msg_id: Option<i64>,
+    pub msg_ids: Vec<i64>,
+}
+
 #[derive(Copy, Clone)]
 pub struct UnpackParams<'a> {
     pub list: &'static [DeserializeObject<'static>],
@@ -82,10 +87,6 @@ impl Encrypted {
         }
     }
 
-    pub fn is_ready(&self) -> bool {
-        *self.salt.lock().unwrap() != 0
-    }
-
     pub fn set_server_time(&self, server_time: f64) {
         *self.time_diff.lock().unwrap() = server_time - get_now();
     }
@@ -108,8 +109,8 @@ impl Encrypted {
     const DECRYPTED: usize = Self::ENCRYPTED + 8 + 8;
     const MESSAGE: usize = Self::DECRYPTED + 8 + 4 + 4;
 
-    pub fn pack(&self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
-        let message_ids = match objects.len() {
+    pub fn pack(&self, buf: &mut Buffer, objects: &[&PackObject]) -> Packed {
+        let packed = match objects.len() {
             1 => self.pack_one_object(buf, objects[0]),
             _ => self.pack_many_objects(buf, objects),
         };
@@ -140,16 +141,19 @@ impl Encrypted {
 
         debug_bytes("protocol [encrypted] (pack) [encrypted]", buf);
 
-        message_ids
+        packed
     }
 
-    fn pack_one_object(&self, buf: &mut Buffer, object: &PackObject) -> Vec<i64> {
+    fn pack_one_object(&self, buf: &mut Buffer, object: &PackObject) -> Packed {
         let msg_id = self.pack_object(buf, object);
 
-        vec![msg_id]
+        Packed {
+            container_msg_id: None,
+            msg_ids: vec![msg_id],
+        }
     }
 
-    fn pack_many_objects(&self, buf: &mut Buffer, objects: &[&PackObject]) -> Vec<i64> {
+    fn pack_many_objects(&self, buf: &mut Buffer, objects: &[&PackObject]) -> Packed {
         MSG_CONTAINER_ID.serialize(buf);
         (objects.len() as i32).serialize(buf);
 
@@ -166,7 +170,10 @@ impl Encrypted {
         let msg_id = get_msg_id(*self.time_diff.lock().unwrap());
         buf.extend_front(&msg_id.to_le_bytes());
 
-        message_ids
+        Packed {
+            container_msg_id: Some(msg_id),
+            msg_ids: message_ids,
+        }
     }
 
     fn pack_object(&self, buf: &mut Buffer, object: &PackObject) -> i64 {

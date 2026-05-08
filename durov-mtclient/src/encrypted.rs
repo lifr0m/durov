@@ -4,6 +4,10 @@ mod receiver;
 mod ack;
 mod salt;
 mod complications;
+mod helpers;
+mod timed;
+mod protocol;
+mod request;
 
 use crate::config::MtConfig;
 use crate::{tcp, Error};
@@ -15,12 +19,13 @@ use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify};
+use request::{CallData, Request};
 use std::marker::PhantomData;
 use tokio::net::TcpStream;
-use worker::{CallData, Worker};
+use worker::Worker;
 
 pub struct EncryptedClient<T> {
-    call_tx: flume::Sender<CallData>,
+    req_tx: flume::Sender<Request>,
     updates_rx: flume::Receiver<api_tl::enums::Updates>,
     _transport: PhantomData<T>,
 }
@@ -30,10 +35,11 @@ where
     T: Send + 'static,
 {
     pub fn new(stream: TcpStream, transport: T, protocol: Encrypted, updates: bool) -> Self {
-        let (call_tx, call_rx) = flume::unbounded();
+        let (req_tx, req_rx) = flume::unbounded();
         let (updates_tx, updates_rx) = flume::unbounded();
-        tokio::spawn(Worker::new(stream, transport, protocol, call_rx, updates.then_some(updates_tx)).run());
-        Self { call_tx, updates_rx, _transport: PhantomData }
+        let worker = Worker::new(stream, transport, protocol, req_tx.clone(), req_rx, updates.then_some(updates_tx));
+        tokio::spawn(worker.run());
+        Self { req_tx, updates_rx, _transport: PhantomData }
     }
 
     pub async fn connect(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error> {
@@ -50,12 +56,12 @@ where
     {
         let (tx, rx) = flume::unbounded();
 
-        let call = CallData {
+        let req = Request::Rpc(CallData {
             body: Box::new(func),
             callback: tx,
             deserialize: &deserialize_object::<F::Result>,
-        };
-        if self.call_tx.send(call).is_err() {
+        });
+        if self.req_tx.send(req).is_err() {
             return Err(Error::Connection);
         }
 

@@ -12,9 +12,10 @@ pub type PackObject = Box<dyn PackObjectTrait + Send>;
 
 pub type UnpackObject = Box<dyn Any + Send>;
 
+// @formatter:off
 pub type DeserializeObject<'a> = &'a (
-dyn Fn(&mut Cursor) -> Result<UnpackObject, deserialize::Error>
-+ Sync
+    dyn Fn(&mut Cursor) -> Result<UnpackObject, deserialize::Error>
+        + Sync
 );
 
 pub fn deserialize_object<T>(src: &mut Cursor) -> Result<UnpackObject, deserialize::Error>

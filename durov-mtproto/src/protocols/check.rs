@@ -2,14 +2,22 @@ use crate::protocols::time::{get_now, parse_msg_id};
 use crate::protocols::Error;
 use durov_tl_types::Identify;
 use std::collections::BTreeSet;
-
-const MSG_ID_HISTORY_SIZE: usize = 4 * (1 + 1024);
+use std::thread;
 
 const SKIP_TIME_CHECK: &[i32] = &[
     durov_tl_types::schemas::mtproto::types::NewSessionCreated::ID,
     durov_tl_types::schemas::mtproto::types::BadMsgNotification::ID,
     durov_tl_types::schemas::mtproto::types::BadServerSalt::ID,
 ];
+
+pub fn msg_id_history_size() -> usize {
+    let cpu_count = thread::available_parallelism().unwrap().get();
+    // 4 - network margin
+    // cpu_count - parallelism on protocol
+    // 1 - msg container
+    // 1024 - max container size
+    4 * cpu_count * (1 + 1024)
+}
 
 pub fn check_auth_key_id(auth_key_id: i64, packet_auth_key_id: i64) -> Result<(), Error> {
     if auth_key_id == packet_auth_key_id {
@@ -72,14 +80,14 @@ fn ensure_msg_id(history: &mut BTreeSet<i64>, msg_id: i64) -> Result<(), Error> 
         return Err(Error::InvalidMsgId(msg_id));
     }
 
-    if history.len() >= MSG_ID_HISTORY_SIZE && msg_id < *history.first().unwrap() {
+    if history.len() >= msg_id_history_size() && msg_id < *history.first().unwrap() {
         return Err(Error::IgnoreThisMessage);
     }
     if history.contains(&msg_id) {
         return Err(Error::IgnoreThisMessage);
     }
 
-    if history.len() >= MSG_ID_HISTORY_SIZE {
+    if history.len() >= msg_id_history_size() {
         history.pop_first();
     }
     history.insert(msg_id);

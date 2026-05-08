@@ -1,17 +1,22 @@
 use crate::encrypted::ack::Ack;
 use crate::encrypted::complications::redirect_updates;
+use crate::encrypted::helpers::Chunks;
+use crate::encrypted::protocol::{EncryptedWorker, ProtoAction, ProtoPacked};
 use crate::encrypted::receiver::Receiver;
+use crate::encrypted::request::{CallData, Request};
 use crate::encrypted::salt::FutureSalts;
 use crate::encrypted::sender::Sender;
-use durov_mtproto::protocols::encrypted::object::{deserialize_object, DeserializeObject, PackObject, UnpackObject};
-use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult, UnpackParams};
+use crate::encrypted::timed::Timed;
+use durov_mtproto::protocols::encrypted::object::{PackObject, UnpackObject};
+use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult, Unpacked};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
-use durov_tl_types::buffer::Buffer;
 use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{iter, mem, thread};
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::time::MissedTickBehavior;
@@ -32,23 +37,28 @@ enum Error {
     Stop,
 }
 
-pub struct CallData {
-    pub body: PackObject,
-    pub callback: flume::Sender<UnpackObject>,
-    pub deserialize: DeserializeObject<'static>,
-}
-
 pub struct Worker<T> {
     sender: Sender,
     receiver: Receiver,
     transport: T,
     protocol: Encrypted,
-    call_rx: flume::Receiver<CallData>,
-    call_map: HashMap<i64, CallData>,
+
+    req_tick: time::Interval,
+    req_tx: flume::Sender<Request>,
+    req_rx: flume::Receiver<Request>,
+    proto_tx: flume::Sender<ProtoAction>,
+    packed_rx: flume::Receiver<ProtoPacked>,
+    unpacked_rx: flume::Receiver<Result<Vec<Unpacked>, durov_mtproto::protocols::Error>>,
+
+    container_map: HashMap<i64, Timed<Vec<i64>>>,
+    service_map: HashMap<i64, Timed<PackObject>>,
+    rpc_map: Arc<Mutex<HashMap<i64, CallData>>>,
+    msg_expiration: time::Interval,
+
     updates_tx: Option<flume::Sender<api_tl::enums::Updates>>,
+
     ack: Ack,
     salts: FutureSalts,
-    synced_salt: bool,
     ping: time::Interval,
 }
 
@@ -57,21 +67,54 @@ impl<T: Transport> Worker<T> {
         stream: TcpStream,
         transport: T,
         protocol: Encrypted,
-        call_rx: flume::Receiver<CallData>,
+        req_tx: flume::Sender<Request>,
+        req_rx: flume::Receiver<Request>,
         updates_tx: Option<flume::Sender<api_tl::enums::Updates>>,
     ) -> Self {
         let (reader, writer) = stream.into_split();
+        let (proto_tx, proto_rx) = flume::unbounded();
+        let (packed_tx, packed_rx) = flume::unbounded();
+        let (unpacked_tx, unpacked_rx) = flume::unbounded();
+        let rpc_map = Arc::new(Mutex::new(HashMap::new()));
+
+        let cpu_count = thread::available_parallelism().unwrap().get();
+        for _ in 0..cpu_count {
+            let worker = EncryptedWorker {
+                protocol: protocol.clone(),
+                rpc_map: Arc::clone(&rpc_map),
+                proto_rx: proto_rx.clone(),
+                packed_tx: packed_tx.clone(),
+                unpacked_tx: unpacked_tx.clone(),
+            };
+            tokio::spawn(worker.run());
+        }
+
         Self {
             sender: Sender::new(writer),
             receiver: Receiver::new(reader),
             transport,
             protocol,
-            call_rx,
-            call_map: HashMap::new(),
+            req_tick: {
+                let mut interval = time::interval(Duration::from_millis(10));
+                interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                interval
+            },
+            req_tx,
+            req_rx,
+            proto_tx,
+            packed_rx,
+            unpacked_rx,
+            container_map: HashMap::new(),
+            service_map: HashMap::new(),
+            rpc_map,
+            msg_expiration: {
+                let mut interval = time::interval(Duration::from_secs(1));
+                interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                interval
+            },
             updates_tx,
             ack: Ack::new(),
             salts: FutureSalts::new(),
-            synced_salt: false,
             ping: {
                 let mut interval = time::interval(Duration::from_secs(60));
                 interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -84,7 +127,7 @@ impl<T: Transport> Worker<T> {
         loop {
             match self.step().await {
                 Ok(()) => continue,
-                Err(Error::Stop) => tracing::info!("worker stopped"),
+                Err(Error::Stop) => {}
                 Err(err) => tracing::error!("worker: {err}"),
             }
             break;
@@ -99,16 +142,25 @@ impl<T: Transport> Worker<T> {
             n = self.sender.send(), if self.sender.condition() => {
                 self.on_send(n?);
             }
-            call = self.call_rx.recv_async(), if self.protocol.is_ready() => {
-                self.on_call(call.map_err(|_| Error::Stop)?);
+            _ = self.req_tick.tick() => {
+                self.on_req_tick()?;
             }
-            _ = self.ack.wait(), if self.protocol.is_ready() && self.ack.condition() => {
+            packed = self.packed_rx.recv_async() => {
+                self.on_packed(packed.expect("protocol worker should not stop"));
+            }
+            list = self.unpacked_rx.recv_async() => {
+                self.on_unpacked(list.expect("protocol worker should not stop")?);
+            }
+            _ = self.msg_expiration.tick() => {
+                self.on_msg_expiration();
+            }
+            _ = self.ack.wait(), if self.ack.condition() => {
                 self.on_ack_timeout();
             }
             _ = self.salts.wait() => {
                 self.on_future_salt();
             }
-            _ = self.ping.tick(), if self.protocol.is_ready() => {
+            _ = self.ping.tick() => {
                 self.on_ping();
             }
         }
@@ -135,19 +187,64 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn on_call(&mut self, call: CallData) {
-        let msg_ids = if self.ack.condition() {
-            let ack = self.new_ack_object();
-            self.enqueue_objects(&[&call.body, &ack])
-        } else {
-            self.enqueue_objects(&[&call.body])
-        };
-        self.call_map.insert(msg_ids[0], call);
+    fn on_req_tick(&mut self) -> Result<(), Error> {
+        let mut requests = iter::repeat_with(|| self.req_rx.try_recv())
+            .map_while(|req| match req {
+                Ok(req) => Some(Ok(req)),
+                Err(flume::TryRecvError::Empty) => None,
+                Err(flume::TryRecvError::Disconnected) => Some(Err(Error::Stop)),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !requests.is_empty() {
+            requests.extend(self.new_ack_requests());
+            for chunk in requests.into_iter().chunks(1024) {
+                self.proto_tx.send(ProtoAction::Pack(chunk))
+                    .expect("protocol worker should not stop");
+            }
+        }
+
+        Ok(())
+    }
+
+    fn on_packed(&mut self, mut packed: ProtoPacked) {
+        self.transport.pack(&mut packed.buf);
+        self.sender.bufs.push_back(packed.buf);
+
+        if let Some(msg_id) = packed.packed.container_msg_id {
+            self.container_map.insert(msg_id, Timed::new(packed.packed.msg_ids.clone()));
+        }
+
+        let mut rpc_map = self.rpc_map.lock().unwrap();
+        for (msg_id, req) in iter::zip(packed.packed.msg_ids, packed.requests) {
+            match req {
+                Request::Service(object) => {
+                    self.service_map.insert(msg_id, Timed::new(object));
+                }
+                Request::Rpc(call) => {
+                    rpc_map.insert(msg_id, call);
+                }
+            }
+        }
+    }
+
+    fn on_unpacked(&mut self, list: Vec<Unpacked>) {
+        for unpacked in list {
+            self.process_object(unpacked.msg_id, unpacked.object);
+        }
+    }
+
+    fn on_msg_expiration(&mut self) {
+        let timeout = Duration::from_secs(5);
+        self.container_map.retain(|_, value| !value.expired(timeout));
+        self.service_map.retain(|_, value| !value.expired(timeout));
     }
 
     fn on_ack_timeout(&mut self) {
-        let object = self.new_ack_object();
-        self.enqueue_objects(&[&object]);
+        for req in self.new_ack_requests() {
+            self.req_tx.send(req)
+                .expect("we are in running worker");
+        }
     }
 
     fn on_future_salt(&mut self) {
@@ -156,8 +253,8 @@ impl<T: Transport> Worker<T> {
             self.protocol.set_salt(salt);
         } else {
             let object = tl::functions::GetFutureSalts { num: 4 };
-            let object = Box::new(object) as PackObject;
-            self.enqueue_objects(&[&object]);
+            self.req_tx.send(Request::Service(Box::new(object)))
+                .expect("we are in running worker");
             self.salts.asked = get_now();
         }
     }
@@ -167,43 +264,24 @@ impl<T: Transport> Worker<T> {
             ping_id: rand::random(),
             disconnect_delay: 75,
         };
-        let object = Box::new(object) as PackObject;
-        self.enqueue_objects(&[&object]);
+        self.req_tx.send(Request::Service(Box::new(object)))
+            .expect("we are in running worker");
     }
 
-    fn new_ack_object(&mut self) -> PackObject {
-        let object = tl::enums::MsgsAck::MsgsAck(
-            tl::types::MsgsAck {
-                msg_ids: self.ack.next_batch(),
-            }
-        );
-        Box::new(object)
+    fn new_ack_requests(&mut self) -> Vec<Request> {
+        iter::repeat_with(|| self.ack.next_batch())
+            .take_while(|msg_ids| !msg_ids.is_empty())
+            .map(|msg_ids| tl::enums::MsgsAck::MsgsAck(tl::types::MsgsAck { msg_ids }))
+            .map(|object| Request::Service(Box::new(object)))
+            .collect()
     }
 
     fn process_recv_buf(&mut self) -> Result<(), Error> {
         match self.transport.unpack(&mut self.receiver.buf) {
             Ok(()) => {
-                let params = UnpackParams {
-                    list: &[
-                        &deserialize_object::<tl::enums::NewSession>,
-                        &deserialize_object::<tl::enums::FutureSalts>,
-                        &deserialize_object::<tl::enums::BadMsgNotification>,
-                        &deserialize_object::<tl::enums::MsgsAck>,
-                        &deserialize_object::<tl::enums::Pong>,
-                        &deserialize_object::<api_tl::enums::Updates>,
-                    ],
-                    resolve: &|msg_id| {
-                        self.call_map.get(&msg_id)
-                            .map(|call| call.deserialize)
-                    },
-                };
-                let list = self.protocol.unpack(&mut self.receiver.buf, params)?;
-
-                for unpacked in list {
-                    self.process_object(unpacked.msg_id, unpacked.object);
-                }
-
-                self.receiver.buf.clear();
+                let buf = mem::take(&mut self.receiver.buf);
+                self.proto_tx.send(ProtoAction::Unpack(buf))
+                    .expect("protocol worker should not stop");
                 self.receiver.pos = 0;
             }
             Err(durov_mtproto::transports::Error::MissingBytes(missing)) => {
@@ -218,7 +296,7 @@ impl<T: Transport> Worker<T> {
     fn process_object(&mut self, msg_id: i64, object: UnpackObject) {
         match object.downcast::<RpcResult>() {
             Ok(mut rpc) => {
-                let call = self.call_map.remove(&rpc.req_msg_id)
+                let call = self.rpc_map.lock().unwrap().remove(&rpc.req_msg_id)
                     .expect("this check should be done in protocol unpack flow");
                 if let Some(updates_tx) = &self.updates_tx {
                     redirect_updates(updates_tx, call.body.as_ref(), &mut rpc.result);
@@ -278,11 +356,11 @@ impl<T: Transport> Worker<T> {
                             let server_time = parse_msg_id(msg_id);
                             self.protocol.set_server_time(server_time);
                         }
-                        self.apply_bad_msg_notification(bad.bad_msg_id, bad.error_code);
+                        self.apply_bad_msg_notification(bad.bad_msg_id, bad.error_code, true);
                     }
                     tl::enums::BadMsgNotification::BadServerSalt(bad) => {
                         self.protocol.set_salt(bad.new_server_salt);
-                        self.apply_bad_msg_notification(bad.bad_msg_id, bad.error_code);
+                        self.apply_bad_msg_notification(bad.bad_msg_id, bad.error_code, true);
                     }
                 }
             }
@@ -290,14 +368,26 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn apply_bad_msg_notification(&mut self, msg_id: i64, code: i32) {
-        if let Some(call) = self.call_map.remove(&msg_id) {
-            self.on_call(call);
-            tracing::warn!(code, "received bad msg notification for request");
-        } else if code == 48 && !self.synced_salt {
-            self.synced_salt = true;
+    fn apply_bad_msg_notification(&mut self, msg_id: i64, code: i32, log: bool) {
+        if let Some(message_ids) = self.container_map.remove(&msg_id) {
+            for msg_id in message_ids.value {
+                self.apply_bad_msg_notification(msg_id, code, false);
+            }
+            tracing::warn!(code, "received bad msg notification for container");
+        } else if let Some(object) = self.service_map.remove(&msg_id) {
+            self.req_tx.send(Request::Service(object.value))
+                .expect("we are in running worker");
+            if log {
+                tracing::warn!(code, "received bad msg notification for service message");
+            }
+        } else if let Some(call) = self.rpc_map.lock().unwrap().remove(&msg_id) {
+            self.req_tx.send(Request::Rpc(call))
+                .expect("we are in running worker");
+            if log {
+                tracing::warn!(code, "received bad msg notification for rpc call");
+            }
         } else {
-            tracing::warn!(code, "received bad msg notification for service message or unknown request");
+            tracing::warn!(code, "received bad msg notification for unknown request");
         }
     }
 
@@ -318,22 +408,12 @@ impl<T: Transport> Worker<T> {
     fn process_updates(&mut self, object: UnpackObject) {
         match object.downcast::<api_tl::enums::Updates>() {
             Ok(updates) => match &self.updates_tx {
-                Some(updates_tx) => { updates_tx.send(*updates).ok(); }
+                Some(updates_tx) => {
+                    updates_tx.send(*updates).ok();
+                }
                 None => tracing::warn!("server sent updates while in no-updates mode"),
             }
             Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }
-    }
-
-    fn enqueue_objects(&mut self, objects: &[&PackObject]) -> Vec<i64> {
-        let mut message_ids = Vec::new();
-        for chunk in objects.chunks(1024) {
-            let mut buf = Buffer::new();
-            let msg_ids = self.protocol.pack(&mut buf, chunk);
-            self.transport.pack(&mut buf);
-            self.sender.bufs.push_back(buf);
-            message_ids.extend(msg_ids);
-        }
-        message_ids
     }
 }

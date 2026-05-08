@@ -137,7 +137,7 @@ where
             )
             .flatten()
             .min()
-            .map(|since| since + GAP_LEEWAY - Instant::now())
+            .map(|since| GAP_LEEWAY - since.elapsed())
             .unwrap_or(LONG_PERIOD);
 
         match time::timeout(timeout, self.client.read().await.next()).await {
@@ -358,7 +358,7 @@ where
 
     fn process_gap<I>(&self, recovering: &mut HashSet<i64>, id: i64, queue: &mut Queue<I>) {
         if let Some(since) = queue.gap_since {
-            if Instant::now() - since > GAP_LEEWAY {
+            if since.elapsed() > GAP_LEEWAY {
                 recovering.insert(id);
                 queue.gap_since = None;
             }
