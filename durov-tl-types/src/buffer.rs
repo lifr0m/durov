@@ -63,6 +63,23 @@ impl Buffer {
         }
     }
 
+    /// Extract content and replace with empty.
+    ///
+    /// Difference between this function and `mem::take` is that
+    /// this function allocates empty buffer with the same capacity.
+    pub fn extract(&mut self) -> Self {
+        #[cfg(not(feature = "fast-buf"))]
+        let data = vec![0; self.capacity()];
+        #[cfg(feature = "fast-buf")]
+        let data = Array::alloc(self.capacity());
+
+        let head = self.capacity() / 2;
+        let tail = head;
+
+        let buf = Self { data, head, tail };
+        mem::replace(self, buf)
+    }
+
     /// Empty buffer.
     pub fn clear(&mut self) {
         self.head = self.capacity() / 2;
@@ -223,6 +240,16 @@ mod tests {
     fn test_new() {
         let buf = Buffer::new();
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_extract() {
+        let mut buf = Buffer::new();
+        buf.extend_back(&[1, 2, 3]);
+        let ext = buf.extract();
+        assert_eq!(buf[..], []);
+        assert_eq!(ext[..], [1, 2, 3]);
+        assert_eq!(buf.capacity(), ext.capacity());
     }
 
     #[test]

@@ -279,7 +279,7 @@ impl<T: Transport> Worker<T> {
     fn process_recv_buf(&mut self) -> Result<(), Error> {
         match self.transport.unpack(&mut self.receiver.buf) {
             Ok(()) => {
-                let buf = mem::take(&mut self.receiver.buf);
+                let buf = self.receiver.buf.extract();
                 self.proto_tx.send(ProtoAction::Unpack(buf))
                     .expect("protocol worker should not stop");
                 self.receiver.pos = 0;
