@@ -95,7 +95,7 @@ impl<T: Transport> Worker<T> {
             transport,
             protocol,
             req_tick: {
-                let mut interval = time::interval(Duration::from_millis(10));
+                let mut interval = time::interval(Duration::from_millis(16));
                 interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
                 interval
             },

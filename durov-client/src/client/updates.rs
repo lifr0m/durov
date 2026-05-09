@@ -4,21 +4,21 @@ mod action;
 mod pts;
 mod queue;
 
+use crate::client::updates::action::{decide_action, Action};
+use crate::client::updates::convert::*;
+use crate::client::updates::pts::{extract_pts, Sequence};
+use crate::client::updates::queue::Queue;
+use crate::client::updates::updater::Updater;
 use crate::client::Client;
 use crate::sessions::encoding::PeerType;
 use crate::sessions::{Peer, Session};
 use crate::{tl, Error};
-use action::{decide_action, Action};
-use convert::*;
 use durov_mtproto::transports::Transport;
-use pts::{extract_pts, Sequence};
-use queue::Queue;
 use std::collections::HashSet;
 use std::iter;
 use std::time::Duration;
 use tokio::time;
 use tokio::time::Instant;
-use updater::Updater;
 
 const LONG_PERIOD: Duration = Duration::from_mins(15);
 const GAP_LEEWAY: Duration = Duration::from_millis(500);

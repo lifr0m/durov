@@ -5,6 +5,9 @@ mod unpack;
 use crate::crypto;
 use crate::protocols::check::{check_auth_key_id, check_msg_id, check_msg_len};
 use crate::protocols::constants::*;
+use crate::protocols::encrypted::gzip::gzip_encode;
+use crate::protocols::encrypted::object::{deserialize_object, DeserializeObject, PackObject, UnpackObject};
+use crate::protocols::encrypted::unpack::unpack_object;
 use crate::protocols::plain::Plain;
 use crate::protocols::serde::serialize_len_first;
 use crate::protocols::time::{get_msg_id, get_now};
@@ -16,11 +19,8 @@ use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{deserialize, Identify};
-use gzip::gzip_encode;
-use object::{deserialize_object, DeserializeObject, PackObject, UnpackObject};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
-use unpack::unpack_object;
 
 const SKIP_GZIP: &[i32] = &[
     durov_tl_types::schemas::api::functions::upload::SaveFilePart::ID,

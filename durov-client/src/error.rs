@@ -1,7 +1,7 @@
 mod placeholder;
 
+use crate::error::placeholder::Placeholder;
 use crate::Error;
-use placeholder::Placeholder;
 use std::str::FromStr;
 
 impl Error {

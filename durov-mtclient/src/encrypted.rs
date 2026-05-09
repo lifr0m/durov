@@ -10,6 +10,8 @@ mod protocol;
 mod request;
 
 use crate::config::MtConfig;
+use crate::encrypted::request::{CallData, Request};
+use crate::encrypted::worker::Worker;
 use crate::{tcp, Error};
 use durov_mtproto::protocols::encrypted::object::{deserialize_object, UnpackObject};
 use durov_mtproto::protocols::encrypted::Encrypted;
@@ -19,10 +21,8 @@ use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{Call, Identify};
-use request::{CallData, Request};
 use std::marker::PhantomData;
 use tokio::net::TcpStream;
-use worker::Worker;
 
 pub struct EncryptedClient<T> {
     req_tx: flume::Sender<Request>,

@@ -13,7 +13,7 @@ So sessions created by this project and telethon are compatible.
 - Concurrent by nature, shareable between tasks. `Client` implements `Clone`.
 - Optimized for very high-load bots. MTProto packing/unpacking is parallelized using all cpu cores.
 - Minimum allocations and copying. Library uses its own contiguous deque buffer.
-- Project complies with all [Telegram Security Guidelines](https://core.telegram.org/mtproto/security_guidelines).
+- Project complies with all [Telegram Security Guidelines](https://corefork.telegram.org/mtproto/security_guidelines).
 
 # Feature flags
 

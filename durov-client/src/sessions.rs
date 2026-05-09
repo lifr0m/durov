@@ -1,9 +1,9 @@
 pub mod encoding;
 pub mod telethon;
 
+use crate::sessions::encoding::PeerType;
 use crate::{tl, Error};
 use async_trait::async_trait;
-use encoding::PeerType;
 use std::collections::HashMap;
 use std::time::SystemTime;
 use tl::types::updates::State;
