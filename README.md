@@ -15,10 +15,6 @@ So sessions created by this project and telethon are compatible.
 - Minimum allocations and copying. Library uses its own contiguous deque buffer.
 - Project complies with all [Telegram Security Guidelines](https://corefork.telegram.org/mtproto/security_guidelines).
 
-# Feature flags
-
-- `fast-buf` - enables faster implementation of `Buffer` which uses `unsafe` code.
-
 # Todo
 
 - Working with files:

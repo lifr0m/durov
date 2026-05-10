@@ -1,8 +1,3 @@
-#[cfg(feature = "fast-buf")]
-mod array;
-
-#[cfg(feature = "fast-buf")]
-use array::Array;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
@@ -34,11 +29,7 @@ const CAPACITY_DIVIDER: usize = 2;
 /// In such cases data can be too small to make new allocation so it's
 /// just moved back to the center of vector without actually reallocating.
 pub struct Buffer {
-    #[cfg(not(feature = "fast-buf"))]
     data: Vec<u8>,
-    #[cfg(feature = "fast-buf")]
-    data: Array,
-
     head: usize,
     tail: usize,
 }
@@ -53,31 +44,10 @@ impl Buffer {
     /// Create empty buffer.
     pub fn new() -> Self {
         Self {
-            #[cfg(not(feature = "fast-buf"))]
             data: Vec::new(),
-            #[cfg(feature = "fast-buf")]
-            data: Array::new(),
-
             head: 0,
             tail: 0,
         }
-    }
-
-    /// Extract content and replace with empty.
-    ///
-    /// Difference between this function and `mem::take` is that
-    /// this function allocates empty buffer with the same capacity.
-    pub fn extract(&mut self) -> Self {
-        #[cfg(not(feature = "fast-buf"))]
-        let data = vec![0; self.capacity()];
-        #[cfg(feature = "fast-buf")]
-        let data = Array::alloc(self.capacity());
-
-        let head = self.capacity() / 2;
-        let tail = head;
-
-        let buf = Self { data, head, tail };
-        mem::replace(self, buf)
     }
 
     /// Empty buffer.
@@ -202,11 +172,7 @@ impl Buffer {
         if new_cap == old_cap && required_len <= new_cap / CAPACITY_DIVIDER {
             self.data.copy_within(old_head..old_tail, self.head);
         } else {
-            #[cfg(not(feature = "fast-buf"))]
             let new_data = vec![0; new_cap];
-            #[cfg(feature = "fast-buf")]
-            let new_data = Array::alloc(new_cap);
-
             let old_data = mem::replace(&mut self.data, new_data);
             self.copy_from_slice(&old_data[old_head..old_tail]);
         }
@@ -240,16 +206,6 @@ mod tests {
     fn test_new() {
         let buf = Buffer::new();
         assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn test_extract() {
-        let mut buf = Buffer::new();
-        buf.extend_back(&[1, 2, 3]);
-        let ext = buf.extract();
-        assert_eq!(buf[..], []);
-        assert_eq!(ext[..], [1, 2, 3]);
-        assert_eq!(buf.capacity(), ext.capacity());
     }
 
     #[test]

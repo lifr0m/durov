@@ -11,6 +11,3 @@ durov-mtproto = { path = "../durov-mtproto" }
 durov-tl-types = { path = "../durov-tl-types" }
 rand = "0.10"
 tracing = "0.1"
-
-[features]
-fast-buf = ["durov-mtproto/fast-buf"]
