@@ -10,4 +10,5 @@ fast-socks5 = "1"
 durov-mtproto = { path = "../durov-mtproto" }
 durov-tl-types = { path = "../durov-tl-types" }
 rand = "0.10"
+bytes = "1"
 tracing = "0.1"

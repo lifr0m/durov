@@ -1,6 +1,7 @@
 use crate::config::MtConfig;
 use crate::encrypted::EncryptedClient;
 use crate::{tcp, Error};
+use bytes::BufMut;
 use durov_mtproto::auth;
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::protocols::plain::Plain;
@@ -48,15 +49,21 @@ where
     }
 
     async fn recv_buf(&mut self, buf: &mut Buffer) -> Result<(), Error> {
+        let mut limit = 0;
+
         loop {
-            match self.transport.unpack(buf) {
-                Ok(()) => break Ok(()),
-                Err(durov_mtproto::transports::Error::MissingBytes(missing)) => {
-                    let pos = buf.len();
-                    buf.resize_back(missing);
-                    self.stream.read_exact(&mut buf[pos..]).await?;
+            match limit {
+                0 => match self.transport.unpack(buf) {
+                    Ok(()) => break Ok(()),
+                    Err(durov_mtproto::transports::Error::MissingBytes(missing)) => {
+                        limit += missing;
+                    }
+                    Err(err) => break Err(err.into()),
                 }
-                Err(err) => break Err(err.into()),
+                _ => {
+                    let mut limit_buf = buf.limit(limit);
+                    limit -= self.stream.read_buf(&mut limit_buf).await?;
+                }
             }
         }
     }

@@ -3,7 +3,6 @@ mod array;
 use array::Array;
 use bytes::buf::UninitSlice;
 use bytes::BufMut;
-use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 use std::{ptr, slice};
 
@@ -50,10 +49,9 @@ impl Buffer {
     }
 
     pub fn array<const N: usize>(&self, start: usize) -> [u8; N] {
-        assert!(start + N <= self.len());
-        let mut arr = MaybeUninit::uninit();
-        unsafe { ptr::copy_nonoverlapping(self.head_ptr().add(start), arr.as_mut_ptr() as *mut u8, N) };
-        unsafe { arr.assume_init() }
+        let mut arr = [0; N];
+        arr.copy_from_slice(&self[start..start + N]);
+        arr
     }
 
     pub fn push_front(&mut self, byte: u8) {

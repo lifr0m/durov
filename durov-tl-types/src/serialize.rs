@@ -60,17 +60,13 @@ impl Serialize for [u8] {
             dst.push_back(self.len() as u8);
             dst.extend_back(self);
             let pad_len = calc_pad_len(1 + self.len());
-            let start = dst.len();
             dst.resize_back(pad_len);
-            dst[start..].fill(0);
         } else {
             dst.push_back(254);
             dst.extend_back(&self.len().to_le_bytes()[..3]);
             dst.extend_back(self);
             let pad_len = calc_pad_len(4 + self.len());
-            let start = dst.len();
             dst.resize_back(pad_len);
-            dst[start..].fill(0);
         }
     }
 }

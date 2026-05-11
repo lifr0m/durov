@@ -169,9 +169,9 @@ impl<T: Transport> Worker<T> {
     }
 
     fn on_recv(&mut self, n: usize) -> Result<(), Error> {
-        self.receiver.pos += n;
+        self.receiver.limit -= n;
 
-        if self.receiver.pos == self.receiver.buf.len() {
+        if self.receiver.limit == 0 {
             self.process_recv_buf()?;
         }
 
@@ -282,10 +282,9 @@ impl<T: Transport> Worker<T> {
                 let buf = mem::take(&mut self.receiver.buf);
                 self.proto_tx.send(ProtoAction::Unpack(buf))
                     .expect("protocol worker should not stop");
-                self.receiver.pos = 0;
             }
             Err(durov_mtproto::transports::Error::MissingBytes(missing)) => {
-                self.receiver.buf.resize_back(missing);
+                self.receiver.limit += missing;
             }
             Err(err) => return Err(err.into()),
         }
