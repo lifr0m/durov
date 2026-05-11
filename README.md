@@ -9,7 +9,6 @@ So sessions created by this project and telethon are compatible.
 
 # Features
 
-- No `unsafe` code.
 - Concurrent by nature, shareable between tasks. `Client` implements `Clone`.
 - Optimized for very high-load bots. MTProto packing/unpacking is parallelized using all cpu cores.
 - Minimum allocations and copying. Library uses its own contiguous deque buffer.

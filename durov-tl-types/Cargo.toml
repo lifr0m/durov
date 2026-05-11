@@ -7,6 +7,7 @@ thiserror = "2"
 crypto-bigint = "0.7"
 phf = { version = "0.13", features = ["macros"] }
 derive_more = { version = "2", features = ["from", "try_into"] }
+bytes = "1"
 
 [build-dependencies]
 durov-tl-parser = { path = "../durov-tl-parser" }
