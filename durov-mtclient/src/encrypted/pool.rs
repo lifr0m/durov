@@ -6,11 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time;
 
-type OnReturn<T> = fn(&mut T);
-
 pub struct Pool<T> {
     pool: Arc<Mutex<Vec<Timed<T>>>>,
-    on_return: OnReturn<T>,
+    on_return: fn(&mut T),
 }
 
 impl<T> Clone for Pool<T> {
@@ -23,7 +21,7 @@ impl<T> Clone for Pool<T> {
 }
 
 impl<T: Send + 'static> Pool<T> {
-    pub fn new(on_return: OnReturn<T>, timeout: Duration) -> Self {
+    pub fn new(on_return: fn(&mut T), timeout: Duration) -> Self {
         let pool = Arc::new(Mutex::new(Vec::new()));
         tokio::spawn(remove_expired_loop(pool.clone(), timeout));
         Self { pool, on_return }
@@ -53,5 +51,44 @@ async fn remove_expired_loop<T>(pool: Arc<Mutex<Vec<Timed<T>>>>, timeout: Durati
         pool.lock().unwrap()
             .retain(|item| !item.expired(timeout));
         time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_pool() {
+        let pool = Pool::new(|n| *n += 1, Duration::from_secs(1));
+        assert_eq!(elements(&pool), []);
+
+        let n = pool.provide();
+        assert_eq!(*n, 0);
+        assert_eq!(elements(&pool), []);
+
+        drop(n);
+        assert_eq!(elements(&pool), [1]);
+
+        let n1 = pool.provide();
+        let n2 = pool.provide();
+        assert_eq!(*n1, 1);
+        assert_eq!(*n2, 0);
+        assert_eq!(elements(&pool), []);
+
+        drop(n1);
+        drop(n2);
+        assert_eq!(elements(&pool), [2, 1]);
+
+        time::sleep(Duration::from_secs(2)).await;
+
+        assert_eq!(elements(&pool), []);
+    }
+
+    fn elements(pool: &Pool<i32>) -> Vec<i32> {
+        pool.pool.lock().unwrap()
+            .iter()
+            .map(|item| item.value)
+            .collect()
     }
 }
