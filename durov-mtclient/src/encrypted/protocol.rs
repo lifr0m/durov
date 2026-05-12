@@ -1,3 +1,5 @@
+use crate::encrypted::pool::item::Provided;
+use crate::encrypted::pool::Pool;
 use crate::encrypted::request::{CallData, Request};
 use durov_mtproto::protocols::encrypted::object::deserialize_object;
 use durov_mtproto::protocols::encrypted::{Encrypted, Packed, UnpackParams, Unpacked};
@@ -9,16 +11,17 @@ use std::sync::{Arc, Mutex};
 
 pub enum ProtoAction {
     Pack(Vec<Request>),
-    Unpack(Buffer),
+    Unpack(Provided<Buffer>),
 }
 
 pub struct ProtoPacked {
-    pub buf: Buffer,
+    pub buf: Provided<Buffer>,
     pub packed: Packed,
     pub requests: Vec<Request>,
 }
 
 pub struct EncryptedWorker {
+    pub bufs: Pool<Buffer>,
     pub protocol: Encrypted,
     pub proto_rx: flume::Receiver<ProtoAction>,
     pub packed_tx: flume::Sender<ProtoPacked>,
@@ -53,7 +56,7 @@ impl EncryptedWorker {
             })
             .collect::<Vec<_>>();
 
-        let mut buf = Buffer::new();
+        let mut buf = self.bufs.provide();
         let packed = self.protocol.pack(&mut buf, &objects);
         self.packed_tx.send(ProtoPacked { buf, packed, requests })
             .map_err(drop)?;
@@ -61,7 +64,7 @@ impl EncryptedWorker {
         Ok(())
     }
 
-    fn on_unpack(&self, mut buf: Buffer) -> Result<(), ()> {
+    fn on_unpack(&self, mut buf: Provided<Buffer>) -> Result<(), ()> {
         let params = UnpackParams {
             list: &[
                 &deserialize_object::<tl::enums::NewSession>,
