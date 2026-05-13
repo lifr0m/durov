@@ -19,7 +19,6 @@ use std::collections::HashSet;
 use std::iter;
 use std::time::Duration;
 use tokio::time;
-use tokio::time::Instant;
 
 const LONG_PERIOD: Duration = Duration::from_mins(15);
 const GAP_LEEWAY: Duration = Duration::from_millis(500);
@@ -364,7 +363,7 @@ where
                 queue.gap_since = None;
             }
         } else if !recovering.contains(&id) {
-            queue.gap_since = Some(Instant::now());
+            queue.gap_since = Some(time::Instant::now());
         }
     }
 

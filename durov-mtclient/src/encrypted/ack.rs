@@ -5,7 +5,6 @@ use std::cmp::min;
 use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::time;
-use tokio::time::Instant;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 const THRESHOLD: usize = 16;
@@ -37,8 +36,8 @@ impl Ack {
         if self.pending.len() > THRESHOLD {
             return;
         }
-        let deadline = self.pending[0].created_at + TIMEOUT;
-        let duration = deadline - Instant::now();
+        let deadline = self.pending[0].created + TIMEOUT;
+        let duration = deadline - time::Instant::now();
         time::sleep(duration).await;
     }
 

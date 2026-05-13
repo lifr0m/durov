@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
-use tokio::time::Instant;
+use tokio::time;
 
 pub struct Queue<T> {
     items: BTreeMap<(i32, i32), Vec<T>>,
-    pub gap_since: Option<Instant>,
+    pub gap_since: Option<time::Instant>,
 }
 
 impl<T> Default for Queue<T> {
