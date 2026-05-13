@@ -4,12 +4,9 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2"
-durov-tl-types = { path = "../durov-tl-types" }
 durov-crypto = { path = "../durov-crypto" }
-crypto-bigint = { version = "0.7", features = ["alloc", "getrandom"] }
-crypto-primes = "0.7"
+durov-tl-types = { path = "../durov-tl-types" }
 rand = "0.10"
-rsa = { version = "=0.10.0-rc.18", features = ["hazmat"] }
 flate2 = { version = "1", features = ["zlib-rs"], default-features = false }
 parking_lot = "0.12"
 tracing = "0.1"

@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::primitives::Error;
 use crypto_bigint::BoxedUint;
 
 pub fn serialize_bigint(num: &BoxedUint) -> Vec<u8> {

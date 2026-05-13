@@ -1,37 +1,13 @@
-mod ciphers;
-mod hashes;
-mod logic;
-mod primes;
-mod utils;
-mod random;
-mod serde;
-mod safety;
+pub mod auth;
+pub mod srp;
+pub mod encrypted;
+pub mod primitives;
 
-pub use ciphers::*;
-use crypto_bigint::BoxedUint;
-pub use hashes::*;
-pub use logic::*;
-pub use primes::*;
-pub use random::*;
-pub use safety::*;
-pub use serde::*;
-use thiserror::Error;
-pub use utils::*;
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("invalid bigint: {0}")]
-    InvalidBigInt(#[from] crypto_bigint::DecodeError),
-
-    #[error("unsafe prime: {0}")]
-    UnsafePrime(BoxedUint),
-
-    #[error("invalid g: {0}")]
-    InvalidG(i32),
-
-    #[error("unsafe prime {p} on g {g}")]
-    UnsafePrimeOnG {
-        p: BoxedUint,
-        g: i32,
-    },
+#[derive(Clone)]
+pub struct Datacenter {
+    pub id: i32,
+    pub prod: bool,
+    pub host: String,
+    pub port: u16,
+    pub pubkey: &'static str,
 }

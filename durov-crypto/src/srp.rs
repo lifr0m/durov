@@ -1,22 +1,22 @@
 #![allow(non_snake_case)]
 
-use crate::tl;
+use crate::primitives::*;
 use crypto_bigint::Odd;
-use durov_crypto::*;
+use durov_tl_types::schemas::api as tl;
 use pbkdf2::pbkdf2_hmac_array;
 use sha2::Sha512;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("durov crypto: {0}")]
-    DurovCrypto(#[from] durov_crypto::Error),
+    #[error("internal: {0}")]
+    Internal(#[from] crate::primitives::Error),
 
-    #[error("param not provided: {0}")]
-    ParamNotProvided(&'static str),
+    #[error("parameter was not provided: {0}")]
+    NotProvided(&'static str),
 
-    #[error("unknown algo provided")]
-    UnknownAlgo,
+    #[error("unknown algorithm provided")]
+    UnknownAlgorithm,
 }
 
 pub fn compute_srp_check(pwd: tl::enums::account::Password, password: &str)
@@ -28,10 +28,10 @@ pub fn compute_srp_check(pwd: tl::enums::account::Password, password: &str)
         return Ok(tl::types::InputCheckPasswordEmpty {}.into());
     }
     let algo = pwd.current_algo
-        .ok_or(Error::ParamNotProvided("current_algo"))?;
+        .ok_or(Error::NotProvided("current_algo"))?;
 
     let tl::enums::PasswordKdfAlgo::PasswordKdfAlgoSha256Sha256Pbkdf2Hmacsha512Iter100000Sha256ModPow(algo) = algo else {
-        return Err(Error::UnknownAlgo);
+        return Err(Error::UnknownAlgorithm);
     };
 
     let p = deserialize_bigint(&algo.p, 2048)?;
@@ -45,7 +45,7 @@ pub fn compute_srp_check(pwd: tl::enums::account::Password, password: &str)
     let salt2 = &algo.salt2;
 
     let g_b = pwd.srp_B
-        .ok_or(Error::ParamNotProvided("srp_B"))?;
+        .ok_or(Error::NotProvided("srp_B"))?;
     let g_b = deserialize_bigint(&g_b, 2048)?;
 
     let a = random_bigint(2048);
@@ -94,7 +94,7 @@ pub fn compute_srp_check(pwd: tl::enums::account::Password, password: &str)
 
     Ok(tl::types::InputCheckPasswordSrp {
         srp_id: pwd.srp_id
-            .ok_or(Error::ParamNotProvided("srp_id"))?,
+            .ok_or(Error::NotProvided("srp_id"))?,
         A: serialize_bigint(&g_a),
         M1: M1.to_vec(),
     }.into())

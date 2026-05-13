@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::primitives::Error;
 use crypto_bigint::{BoxedUint, NonZero};
 use crypto_primes::Flavor;
 

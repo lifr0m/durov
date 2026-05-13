@@ -1,5 +1,5 @@
 use crate::proxy::Proxy;
-use durov_mtproto::datacenter::Datacenter;
+use durov_crypto::Datacenter;
 
 pub struct MtConfig {
     pub dc: Datacenter,

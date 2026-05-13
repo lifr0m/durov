@@ -4,18 +4,15 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time"] }
 durov-mtclient = { path = "../durov-mtclient" }
 durov-mtproto = { path = "../durov-mtproto" }
-durov-tl-types = { path = "../durov-tl-types" }
 durov-crypto = { path = "../durov-crypto" }
-crypto-bigint = { version = "0.7", features = ["alloc"] }
-pbkdf2 = "0.13"
-sha2 = "0.11"
+durov-tl-types = { path = "../durov-tl-types" }
+sqlx = { version = "0.8", features = ["runtime-tokio"], optional = true }
+dialoguer = "0.12"
 async-trait = "0.1"
 tracing = "0.1"
-
-sqlx = { version = "0.8", features = ["runtime-tokio"], optional = true }
 
 [dev-dependencies]
 eyre = "0.6"

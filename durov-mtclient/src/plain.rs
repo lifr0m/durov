@@ -2,7 +2,7 @@ use crate::config::MtConfig;
 use crate::encrypted::EncryptedClient;
 use crate::{tcp, Error};
 use bytes::BufMut;
-use durov_mtproto::auth;
+use durov_crypto::auth;
 use durov_mtproto::protocols::encrypted::Encrypted;
 use durov_mtproto::protocols::plain::Plain;
 use durov_mtproto::transports::Transport;

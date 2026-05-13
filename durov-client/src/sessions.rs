@@ -1,66 +1,17 @@
 pub mod encoding;
+pub mod peer;
+pub mod auth;
 #[cfg(feature = "session-telethon")]
 pub mod telethon;
 
+use crate::sessions::auth::Auth;
 use crate::sessions::encoding::PeerType;
+use crate::sessions::peer::Peer;
 use crate::{tl, Error};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::SystemTime;
 use tl::types::updates::State;
-
-#[derive(Debug)]
-pub struct Peer {
-    pub id: i64,
-    pub typ: PeerType,
-    pub access_hash: i64,
-    pub username: Option<String>,
-}
-
-impl Peer {
-    pub fn to_input_peer(&self) -> tl::enums::InputPeer {
-        match self.typ {
-            PeerType::User => tl::types::InputPeerUser {
-                user_id: self.id,
-                access_hash: self.access_hash,
-            }.into(),
-
-            PeerType::Chat => tl::types::InputPeerChat {
-                chat_id: self.id,
-            }.into(),
-
-            PeerType::Channel => tl::types::InputPeerChannel {
-                channel_id: self.id,
-                access_hash: self.access_hash,
-            }.into(),
-        }
-    }
-
-    pub fn to_input_user(&self) -> tl::enums::InputUser {
-        assert_eq!(self.typ, PeerType::User);
-
-        tl::types::InputUser {
-            user_id: self.id,
-            access_hash: self.access_hash,
-        }.into()
-    }
-
-    pub fn to_input_channel(&self) -> tl::enums::InputChannel {
-        assert_eq!(self.typ, PeerType::Channel);
-
-        tl::types::InputChannel {
-            channel_id: self.id,
-            access_hash: self.access_hash,
-        }.into()
-    }
-}
-
-pub struct Auth {
-    pub dc_id: i32,
-    pub dc_host: String,
-    pub dc_port: u16,
-    pub auth_key: [u8; 256],
-}
 
 #[async_trait]
 pub trait Session: Sized {

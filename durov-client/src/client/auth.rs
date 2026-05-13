@@ -1,9 +1,8 @@
 use crate::client::Client;
 use crate::sessions::Session;
-use crate::srp::compute_srp_check;
 use crate::{tl, Error};
+use durov_crypto::srp::compute_srp_check;
 use durov_mtproto::transports::Transport;
-use std::io::Write;
 
 impl<T: Transport, S: Session> Client<T, S>
 where
@@ -32,13 +31,19 @@ where
             unimplemented!("set up email required");
         }
 
-        let code = input("code");
+        let code = dialoguer::Input::new()
+            .with_prompt("Code")
+            .interact_text()
+            .unwrap();
 
         let authorization = match self.sign_in(phone, sent_code, code).await {
             Ok(authorization) => authorization,
             Err(err) if err.is(401, "SESSION_PASSWORD_NEEDED") => {
                 let pwd = self.call(tl::functions::account::GetPassword {}).await?;
-                let password = input("password");
+                let password = dialoguer::Password::new()
+                    .with_prompt("Password")
+                    .interact()
+                    .unwrap();
                 let check = compute_srp_check(pwd, &password)?;
                 self.call(tl::functions::auth::CheckPassword { password: check }).await?
             }
@@ -106,16 +111,4 @@ where
             email_verification: None,
         }).await
     }
-}
-
-fn input(what: &str) -> String {
-    print!("Enter {what}: ");
-    std::io::stdout()
-        .flush()
-        .unwrap();
-    std::io::stdin()
-        .lines()
-        .next()
-        .unwrap()
-        .unwrap()
 }

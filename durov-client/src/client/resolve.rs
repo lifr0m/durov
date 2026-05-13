@@ -1,6 +1,7 @@
 use crate::client::Client;
 use crate::sessions::encoding::PeerType;
-use crate::sessions::{Peer, Session};
+use crate::sessions::peer::Peer;
+use crate::sessions::Session;
 use crate::{tl, Error};
 use durov_mtproto::transports::Transport;
 

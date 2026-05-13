@@ -19,7 +19,7 @@ pub enum Error {
     Protocol(#[from] durov_mtproto::protocols::Error),
 
     #[error("auth: {0}")]
-    Auth(#[from] durov_mtproto::auth::Error),
+    Auth(#[from] durov_crypto::auth::Error),
 
     #[error("auth failed after several unsuccessful attempts")]
     AuthFailed,

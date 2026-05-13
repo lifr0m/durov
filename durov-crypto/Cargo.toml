@@ -4,10 +4,12 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2"
+crypto-bigint = { version = "0.7", features = ["alloc", "getrandom"] }
+crypto-primes = "0.7"
 durov-tl-types = { path = "../durov-tl-types" }
 rand = "0.10"
-crypto-bigint = { version = "0.7", features = ["alloc"] }
-crypto-primes = "0.7"
+rsa = { version = "=0.10.0-rc.18", features = ["hazmat"] }
+pbkdf2 = "0.13"
 crc-fast = "1"
 sha2 = "0.11"
 sha1 = "0.11"

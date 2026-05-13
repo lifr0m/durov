@@ -1,5 +1,5 @@
 use crate::proxy::{Proxy, Socks5Auth};
-use durov_mtproto::datacenter::Datacenter;
+use durov_crypto::Datacenter;
 use tokio::io;
 use tokio::net::TcpStream;
 

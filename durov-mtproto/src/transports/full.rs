@@ -1,6 +1,6 @@
-use crate::crypto;
 use crate::tracing::debug_bytes;
 use crate::transports::{Error, Transport};
+use durov_crypto::primitives as crypto;
 use durov_tl_types::buffer::Buffer;
 
 pub struct Full {

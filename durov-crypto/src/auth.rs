@@ -1,18 +1,20 @@
-use crate::crypto;
-use crate::datacenter::Datacenter;
+mod internals;
+
+use crate::Datacenter;
 use crypto_bigint::{BoxedUint, Odd, Random, I128, I256};
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
+use internals as crypto;
 use rsa::pkcs1::DecodeRsaPublicKey;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("crypto: {0}")]
-    Crypto(#[from] crypto::Error),
+    #[error("internal: {0}")]
+    Internal(#[from] crate::primitives::Error),
 
-    #[error("durov crypto: {0}")]
-    DurovCrypto(#[from] durov_crypto::Error),
+    #[error("{0}")]
+    AuthInternal(#[from] internals::Error),
 
     #[error("nonce mismatch: expected {expected}, received {received}")]
     NonceMismatch {
@@ -208,31 +210,31 @@ pub fn step5(
 ) -> Result<Step5, Error> {
     let auth_key_aux_id = crypto::compute_auth_key_aux_id(auth_key);
 
-    let res = match res {
-        tl::enums::SetClientDhParamsAnswer::DhGenOk(res) => res,
+    match res {
+        tl::enums::SetClientDhParamsAnswer::DhGenOk(res) => {
+            ensure_nonce_equal(nonce, res.nonce)?;
+            ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
+            ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash1, 1, auth_key_aux_id)?;
+
+            let server_salt = crypto::compute_server_salt(new_nonce, res.server_nonce);
+
+            Ok(Step5 { server_salt })
+        }
         tl::enums::SetClientDhParamsAnswer::DhGenRetry(res) => {
             ensure_nonce_equal(nonce, res.nonce)?;
             ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
             ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash2, 2, auth_key_aux_id)?;
 
-            return Err(Error::RetryStep4 { auth_key_aux_id });
+            Err(Error::RetryStep4 { auth_key_aux_id })
         }
         tl::enums::SetClientDhParamsAnswer::DhGenFail(res) => {
             ensure_nonce_equal(nonce, res.nonce)?;
             ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
             ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash3, 3, auth_key_aux_id)?;
 
-            return Err(Error::RetryStep4 { auth_key_aux_id });
+            Err(Error::RetryStep4 { auth_key_aux_id })
         }
-    };
-
-    ensure_nonce_equal(nonce, res.nonce)?;
-    ensure_server_nonce_equal(server_nonce, res.server_nonce)?;
-    ensure_new_nonce_hash_equal(new_nonce, res.new_nonce_hash1, 1, auth_key_aux_id)?;
-
-    let server_salt = crypto::compute_server_salt(new_nonce, res.server_nonce);
-
-    Ok(Step5 { server_salt })
+    }
 }
 
 fn ensure_nonce_equal(nonce: I128, res_nonce: I128) -> Result<(), Error> {
@@ -257,12 +259,7 @@ fn ensure_server_nonce_equal(nonce: I128, res_nonce: I128) -> Result<(), Error> 
     }
 }
 
-fn ensure_new_nonce_hash_equal(
-    nonce: I256,
-    res_hash: I128,
-    byte: u8,
-    auth_key_aux_id: i64,
-) -> Result<(), Error> {
+fn ensure_new_nonce_hash_equal(nonce: I256, res_hash: I128, byte: u8, auth_key_aux_id: i64) -> Result<(), Error> {
     let byte: &[u8] = match byte {
         0 => &[],
         _ => &[byte],

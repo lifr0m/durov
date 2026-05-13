@@ -1,4 +1,4 @@
-use durov_mtproto::datacenter::Datacenter;
+use durov_crypto::Datacenter;
 
 pub fn get_default_dc(prod: bool) -> Datacenter {
     if prod {

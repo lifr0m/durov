@@ -2,7 +2,6 @@ pub mod object;
 mod gzip;
 mod unpack;
 
-use crate::crypto;
 use crate::protocols::check::{check_auth_key_id, check_msg_id, check_msg_len};
 use crate::protocols::constants::*;
 use crate::protocols::encrypted::gzip::gzip_encode;
@@ -13,6 +12,7 @@ use crate::protocols::serde::serialize_len_first;
 use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
 use crate::tracing::debug_bytes;
+use durov_crypto::encrypted as crypto;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::cursor::{Cursor, Seek};
 use durov_tl_types::deserialize::Deserialize;

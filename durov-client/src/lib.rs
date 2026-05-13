@@ -1,5 +1,4 @@
 pub mod client;
-pub mod srp;
 pub mod config;
 pub mod sessions;
 pub mod error;
@@ -10,11 +9,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("mt client: {0}")]
+    #[error("mtproto client: {0}")]
     MtClient(durov_mtclient::Error),
 
     #[error("srp: {0}")]
-    Srp(#[from] srp::Error),
+    Srp(#[from] durov_crypto::srp::Error),
 
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
