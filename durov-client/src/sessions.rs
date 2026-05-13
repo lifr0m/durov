@@ -1,4 +1,5 @@
 pub mod encoding;
+#[cfg(feature = "session-telethon")]
 pub mod telethon;
 
 use crate::sessions::encoding::PeerType;
