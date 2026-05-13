@@ -15,8 +15,9 @@ use durov_mtproto::transports::Transport;
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{iter, mem, thread};
 use thiserror::Error;
@@ -218,13 +219,9 @@ impl<T: Transport> Worker<T> {
         self.transport.pack(&mut packed.buf);
         self.sender.bufs.push_back(packed.buf);
 
-        if let Some(msg_id) = packed.packed.container_msg_id {
-            self.container_map.insert(msg_id, Timed::new(packed.packed.msg_ids.clone()));
-        }
+        let mut rpc_map = self.rpc_map.lock();
 
-        let mut rpc_map = self.rpc_map.lock().unwrap();
-
-        for (msg_id, req) in iter::zip(packed.packed.msg_ids, packed.requests) {
+        for (&msg_id, req) in iter::zip(&packed.packed.msg_ids, packed.requests) {
             match req {
                 Request::Service(object) => {
                     self.service_map.insert(msg_id, Timed::new(object));
@@ -233,6 +230,10 @@ impl<T: Transport> Worker<T> {
                     rpc_map.insert(msg_id, call);
                 }
             }
+        }
+
+        if let Some(msg_id) = packed.packed.container_msg_id {
+            self.container_map.insert(msg_id, Timed::new(packed.packed.msg_ids));
         }
     }
 
@@ -303,7 +304,7 @@ impl<T: Transport> Worker<T> {
     fn process_object(&mut self, msg_id: i64, object: UnpackObject) {
         match object.downcast::<RpcResult>() {
             Ok(mut rpc) => {
-                let call = self.rpc_map.lock().unwrap().remove(&rpc.req_msg_id)
+                let call = self.rpc_map.lock().remove(&rpc.req_msg_id)
                     .expect("this check should be done in protocol unpack flow");
                 if let Some(updates_tx) = &self.updates_tx {
                     redirect_updates(updates_tx, call.body.as_ref(), &mut rpc.result);
@@ -387,7 +388,7 @@ impl<T: Transport> Worker<T> {
             if log {
                 tracing::warn!(code, "received bad msg notification for service message");
             }
-        } else if let Some(call) = self.rpc_map.lock().unwrap().remove(&msg_id) {
+        } else if let Some(call) = self.rpc_map.lock().remove(&msg_id) {
             self.req_tx.send(Request::Rpc(call))
                 .expect("we are in running worker");
             if log {

@@ -2,7 +2,8 @@ pub mod item;
 
 use crate::encrypted::timed::Timed;
 use item::Provided;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
 
@@ -30,8 +31,7 @@ impl<T: Send + 'static> Pool<T> {
 
 impl<T: Default> Pool<T> {
     pub fn provide(&self) -> Provided<T> {
-        let item = self.pool.lock().unwrap()
-            .pop()
+        let item = self.pool.lock().pop()
             .map(|item| item.value)
             .unwrap_or_default();
         Provided::new(self.clone(), item)
@@ -41,15 +41,13 @@ impl<T: Default> Pool<T> {
 impl<T> Pool<T> {
     fn put(&self, mut item: T) {
         (self.on_return)(&mut item);
-        self.pool.lock().unwrap()
-            .push(Timed::new(item));
+        self.pool.lock().push(Timed::new(item));
     }
 }
 
 async fn remove_expired_loop<T>(pool: Arc<Mutex<Vec<Timed<T>>>>, timeout: Duration) {
     loop {
-        pool.lock().unwrap()
-            .retain(|item| !item.expired(timeout));
+        pool.lock().retain(|item| !item.expired(timeout));
         time::sleep(Duration::from_secs(1)).await;
     }
 }
@@ -86,8 +84,7 @@ mod tests {
     }
 
     fn elements(pool: &Pool<i32>) -> Vec<i32> {
-        pool.pool.lock().unwrap()
-            .iter()
+        pool.pool.lock().iter()
             .map(|item| item.value)
             .collect()
     }

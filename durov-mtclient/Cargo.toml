@@ -11,4 +11,5 @@ durov-mtproto = { path = "../durov-mtproto" }
 durov-tl-types = { path = "../durov-tl-types" }
 rand = "0.10"
 bytes = "1"
+parking_lot = "0.12"
 tracing = "0.1"

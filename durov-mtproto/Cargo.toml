@@ -11,4 +11,5 @@ crypto-primes = "0.7"
 rand = "0.10"
 rsa = { version = "=0.10.0-rc.18", features = ["hazmat"] }
 flate2 = "1"
+parking_lot = "0.12"
 tracing = "0.1"

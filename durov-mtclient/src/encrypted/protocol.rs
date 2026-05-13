@@ -6,8 +6,9 @@ use durov_mtproto::protocols::encrypted::{Encrypted, Packed, UnpackParams, Unpac
 use durov_tl_types::buffer::Buffer;
 use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub enum ProtoAction {
     Pack(Vec<Request>),
@@ -75,8 +76,7 @@ impl EncryptedWorker {
                 &deserialize_object::<api_tl::enums::Updates>,
             ],
             resolve: &|msg_id| {
-                self.rpc_map.lock().unwrap()
-                    .get(&msg_id)
+                self.rpc_map.lock().get(&msg_id)
                     .map(|call| call.deserialize)
             },
         };

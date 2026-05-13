@@ -19,8 +19,9 @@ use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::schemas::mtproto as tl;
 use durov_tl_types::serialize::Serialize;
 use durov_tl_types::{deserialize, Identify};
+use parking_lot::Mutex;
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 const SKIP_GZIP: &[i32] = &[
     durov_tl_types::schemas::api::functions::upload::SaveFilePart::ID,
@@ -88,11 +89,11 @@ impl Encrypted {
     }
 
     pub fn set_server_time(&self, server_time: f64) {
-        *self.time_diff.lock().unwrap() = server_time - get_now();
+        *self.time_diff.lock() = server_time - get_now();
     }
 
     pub fn set_salt(&self, salt: i64) {
-        *self.salt.lock().unwrap() = salt;
+        *self.salt.lock() = salt;
     }
 }
 
@@ -116,7 +117,7 @@ impl Encrypted {
         };
 
         buf.extend_front(&self.session_id.to_le_bytes());
-        buf.extend_front(&self.salt.lock().unwrap().to_le_bytes());
+        buf.extend_front(&self.salt.lock().to_le_bytes());
 
         debug_bytes("protocol [encrypted] (pack) [decrypted]", buf);
 
@@ -167,7 +168,7 @@ impl Encrypted {
         let seq = self.next_msg_seq(false);
         buf.extend_front(&seq.to_le_bytes());
 
-        let msg_id = get_msg_id(*self.time_diff.lock().unwrap());
+        let msg_id = get_msg_id(*self.time_diff.lock());
         buf.extend_front(&msg_id.to_le_bytes());
 
         Packed {
@@ -177,7 +178,7 @@ impl Encrypted {
     }
 
     fn pack_object(&self, buf: &mut Buffer, object: &PackObject) -> i64 {
-        let msg_id = get_msg_id(*self.time_diff.lock().unwrap());
+        let msg_id = get_msg_id(*self.time_diff.lock());
         msg_id.serialize(buf);
 
         let content = durov_tl_types::schemas::api::ALL_IDS.contains(&object.id());
@@ -211,7 +212,7 @@ impl Encrypted {
     }
 
     fn next_msg_seq(&self, content: bool) -> i32 {
-        let mut msg_seq = self.msg_seq.lock().unwrap();
+        let mut msg_seq = self.msg_seq.lock();
 
         if content {
             let new_msg_seq = *msg_seq * 2 + 1;
@@ -302,8 +303,8 @@ impl Encrypted {
         let id = i32::deserialize(src)?;
 
         match check_msg_id(
-            *self.time_diff.lock().unwrap(),
-            &mut self.msg_id_history.lock().unwrap(),
+            *self.time_diff.lock(),
+            &mut self.msg_id_history.lock(),
             msg_id,
             Some(id),
         ) {
