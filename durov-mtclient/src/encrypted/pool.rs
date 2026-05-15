@@ -3,7 +3,7 @@ pub mod item;
 use crate::encrypted::timed::Timed;
 use item::Provided;
 use parking_lot::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::time;
 
@@ -24,7 +24,7 @@ impl<T> Clone for Pool<T> {
 impl<T: Send + 'static> Pool<T> {
     pub fn new(on_return: fn(&mut T), timeout: Duration) -> Self {
         let pool = Arc::new(Mutex::new(Vec::new()));
-        tokio::spawn(remove_expired_loop(pool.clone(), timeout));
+        tokio::spawn(remove_expired_loop(Arc::downgrade(&pool), timeout));
         Self { pool, on_return }
     }
 }
@@ -45,8 +45,8 @@ impl<T> Pool<T> {
     }
 }
 
-async fn remove_expired_loop<T>(pool: Arc<Mutex<Vec<Timed<T>>>>, timeout: Duration) {
-    loop {
+async fn remove_expired_loop<T>(pool: Weak<Mutex<Vec<Timed<T>>>>, timeout: Duration) {
+    while let Some(pool) = pool.upgrade() {
         pool.lock().retain(|item| !item.expired(timeout));
         time::sleep(Duration::from_secs(1)).await;
     }
