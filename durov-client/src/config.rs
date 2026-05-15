@@ -16,6 +16,7 @@ pub struct Config {
     pub use_compression: bool,
     pub updates: bool,
     pub catch_up: bool,
+    pub high_load: bool,
 }
 
 impl Config {
@@ -35,6 +36,7 @@ impl Config {
             use_compression: true,
             updates: false,
             catch_up: false,
+            high_load: false,
         }
     }
 }

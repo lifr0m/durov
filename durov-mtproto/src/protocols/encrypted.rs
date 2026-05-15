@@ -7,7 +7,6 @@ use crate::protocols::constants::*;
 use crate::protocols::encrypted::gzip::gzip_encode;
 use crate::protocols::encrypted::object::{deserialize_object, DeserializeObject, PackObject, UnpackObject};
 use crate::protocols::encrypted::unpack::unpack_object;
-use crate::protocols::plain::Plain;
 use crate::protocols::serde::serialize_len_first;
 use crate::protocols::time::{get_msg_id, get_now};
 use crate::protocols::Error;
@@ -59,10 +58,11 @@ pub struct Encrypted {
     session_id: i64,
     msg_seq: Arc<Mutex<i32>>,
     use_gzip: bool,
+    parallelism: usize,
 }
 
 impl Encrypted {
-    pub fn new(auth_key: [u8; 256], use_gzip: bool) -> Self {
+    pub fn new(auth_key: [u8; 256], use_gzip: bool, parallelism: usize) -> Self {
         Self {
             time_diff: Arc::new(Mutex::new(0.0)),
             msg_id_history: Arc::new(Mutex::new(BTreeSet::new())),
@@ -72,19 +72,7 @@ impl Encrypted {
             session_id: rand::random(),
             msg_seq: Arc::new(Mutex::new(0)),
             use_gzip,
-        }
-    }
-
-    pub fn from_plain(protocol: Plain, auth_key: [u8; 256], salt: i64, use_gzip: bool) -> Self {
-        Self {
-            time_diff: Arc::new(Mutex::new(protocol.time_diff)),
-            msg_id_history: Arc::new(Mutex::new(protocol.msg_id_history)),
-            auth_key,
-            auth_key_id: crypto::compute_auth_key_id(&auth_key),
-            salt: Arc::new(Mutex::new(salt)),
-            session_id: rand::random(),
-            msg_seq: Arc::new(Mutex::new(0)),
-            use_gzip,
+            parallelism,
         }
     }
 
@@ -295,7 +283,7 @@ impl Encrypted {
         -> Result<Vec<Unpacked>, Error>
     {
         let msg_id = i64::deserialize(src)?;
-        let _seq = i32::deserialize(src)?;
+        let _ = i32::deserialize(src)?;
         let len = i32::deserialize(src)? as usize;
 
         let end = src.tell() + len;
@@ -305,6 +293,7 @@ impl Encrypted {
         match check_msg_id(
             *self.time_diff.lock(),
             &mut self.msg_id_history.lock(),
+            4 * self.parallelism * (1 + 1024),
             msg_id,
             Some(id),
         ) {

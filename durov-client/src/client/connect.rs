@@ -11,6 +11,7 @@ use durov_mtclient::encrypted::EncryptedClient;
 use durov_mtclient::plain::PlainClient;
 use durov_mtproto::transports::Transport;
 use std::sync::Arc;
+use std::thread;
 use tokio::sync::{Mutex, RwLock};
 
 impl<T: Transport, S: Session> Client<T, S>
@@ -176,5 +177,12 @@ fn create_mt_config(config: &Config, dc: Datacenter) -> MtConfig {
         proxy: config.proxy.clone(),
         use_gzip: config.use_compression,
         updates: config.updates,
+        parallelism: if config.high_load {
+            thread::available_parallelism()
+                .unwrap()
+                .get()
+        } else {
+            1
+        },
     }
 }

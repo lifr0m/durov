@@ -27,7 +27,7 @@ where
         Ok(peer)
     }
 
-    pub(super) async fn apply_peers(&self, chats: &[tl::enums::Chat], users: &[tl::enums::User])
+    pub(crate) async fn apply_peers(&self, chats: &[tl::enums::Chat], users: &[tl::enums::User])
         -> Result<(), Error>
     {
         let chat_iter = chats.iter()

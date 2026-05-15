@@ -1,3 +1,4 @@
+use crate::config::MtConfig;
 use crate::encrypted::ack::Ack;
 use crate::encrypted::complications::redirect_updates;
 use crate::encrypted::helpers::Chunks;
@@ -19,7 +20,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{iter, mem, thread};
+use std::{iter, mem};
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::time::MissedTickBehavior;
@@ -60,7 +61,7 @@ pub struct Worker<T> {
     rpc_map: Arc<Mutex<HashMap<i64, CallData>>>,
     msg_expiration: time::Interval,
 
-    updates_tx: Option<flume::Sender<api_tl::enums::Updates>>,
+    updates_tx: flume::Sender<api_tl::enums::Updates>,
 
     ack: Ack,
     salts: FutureSalts,
@@ -69,12 +70,13 @@ pub struct Worker<T> {
 
 impl<T: Transport> Worker<T> {
     pub fn new(
+        config: MtConfig,
         stream: TcpStream,
         transport: T,
         protocol: Encrypted,
         req_tx: flume::Sender<Request>,
         req_rx: flume::Receiver<Request>,
-        updates_tx: Option<flume::Sender<api_tl::enums::Updates>>,
+        updates_tx: flume::Sender<api_tl::enums::Updates>,
     ) -> Self {
         let bufs = Pool::new(Buffer::clear, Duration::from_mins(5));
         let (reader, writer) = stream.into_split();
@@ -83,17 +85,15 @@ impl<T: Transport> Worker<T> {
         let (unpacked_tx, unpacked_rx) = flume::unbounded();
         let rpc_map = Arc::new(Mutex::new(HashMap::new()));
 
-        let cpu_count = thread::available_parallelism().unwrap().get();
-        for _ in 0..cpu_count {
-            let worker = EncryptedWorker {
+        for _ in 0..config.parallelism {
+            tokio::spawn(EncryptedWorker {
                 bufs: bufs.clone(),
                 protocol: protocol.clone(),
                 rpc_map: Arc::clone(&rpc_map),
                 proto_rx: proto_rx.clone(),
                 packed_tx: packed_tx.clone(),
                 unpacked_tx: unpacked_tx.clone(),
-            };
-            tokio::spawn(worker.run());
+            }.run());
         }
 
         Self {
@@ -306,9 +306,7 @@ impl<T: Transport> Worker<T> {
             Ok(mut rpc) => {
                 let call = self.rpc_map.lock().remove(&rpc.req_msg_id)
                     .expect("this check should be done in protocol unpack flow");
-                if let Some(updates_tx) = &self.updates_tx {
-                    redirect_updates(updates_tx, call.body.as_ref(), &mut rpc.result);
-                }
+                redirect_updates(&self.updates_tx, call.body.as_ref(), &mut rpc.result);
                 call.callback.send(rpc.result).ok();
                 self.ack.add(msg_id);
             }
@@ -323,9 +321,7 @@ impl<T: Transport> Worker<T> {
 
                 self.protocol.set_salt(new.server_salt);
 
-                if let Some(updates_tx) = &self.updates_tx {
-                    updates_tx.send(api_tl::types::UpdatesTooLong {}.into()).ok();
-                }
+                self.updates_tx.send(api_tl::types::UpdatesTooLong {}.into()).ok();
 
                 self.ack.add(msg_id);
             }
@@ -415,11 +411,8 @@ impl<T: Transport> Worker<T> {
 
     fn process_updates(&mut self, object: UnpackObject) {
         match object.downcast::<api_tl::enums::Updates>() {
-            Ok(updates) => match &self.updates_tx {
-                Some(updates_tx) => {
-                    updates_tx.send(*updates).ok();
-                }
-                None => tracing::warn!("server sent updates while in no-updates mode"),
+            Ok(updates) => {
+                self.updates_tx.send(*updates).ok();
             }
             Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }

@@ -102,8 +102,8 @@ where
                 step2.new_nonce,
                 &step4.auth_key,
             ) {
-                Ok(step5) => {
-                    let encrypted = self.upgrade(step4.auth_key, step5.server_salt);
+                Ok(_) => {
+                    let encrypted = self.upgrade(step4.auth_key);
                     break Ok((encrypted, step4.auth_key));
                 }
                 Err(auth::Error::RetryStep4 { auth_key_aux_id }) => {
@@ -118,13 +118,8 @@ where
         }
     }
 
-    fn upgrade(self, auth_key: [u8; 256], salt: i64) -> EncryptedClient<T> {
-        let protocol = Encrypted::from_plain(
-            self.protocol,
-            auth_key,
-            salt,
-            self.config.use_gzip,
-        );
-        EncryptedClient::new(self.stream, self.transport, protocol, self.config.updates)
+    fn upgrade(self, auth_key: [u8; 256]) -> EncryptedClient<T> {
+        let protocol = Encrypted::new(auth_key, self.config.use_gzip, self.config.parallelism);
+        EncryptedClient::new(self.config, self.stream, self.transport, protocol)
     }
 }

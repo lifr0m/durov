@@ -27,7 +27,7 @@ use tokio::net::TcpStream;
 
 pub struct EncryptedClient<T> {
     req_tx: flume::Sender<Request>,
-    updates_rx: flume::Receiver<api_tl::enums::Updates>,
+    updates_rx: Option<flume::Receiver<api_tl::enums::Updates>>,
     _transport: PhantomData<T>,
 }
 
@@ -35,19 +35,19 @@ impl<T: Transport> EncryptedClient<T>
 where
     T: Send + 'static,
 {
-    pub fn new(stream: TcpStream, transport: T, protocol: Encrypted, updates: bool) -> Self {
+    pub fn new(config: MtConfig, stream: TcpStream, transport: T, protocol: Encrypted) -> Self {
         let (req_tx, req_rx) = flume::unbounded();
         let (updates_tx, updates_rx) = flume::unbounded();
-        let worker = Worker::new(stream, transport, protocol, req_tx.clone(), req_rx, updates.then_some(updates_tx));
-        tokio::spawn(worker.run());
+        let updates_rx = config.updates.then_some(updates_rx);
+        tokio::spawn(Worker::new(config, stream, transport, protocol, req_tx.clone(), req_rx, updates_tx).run());
         Self { req_tx, updates_rx, _transport: PhantomData }
     }
 
     pub async fn connect(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error> {
         let stream = tcp::connect(&config.dc, config.proxy.as_ref()).await?;
         let transport = T::default();
-        let protocol = Encrypted::new(auth_key, config.use_gzip);
-        Ok(Self::new(stream, transport, protocol, config.updates))
+        let protocol = Encrypted::new(auth_key, config.use_gzip, config.parallelism);
+        Ok(Self::new(config, stream, transport, protocol))
     }
 
     pub async fn call<F>(&self, func: F) -> Result<F::Result, Error>
@@ -72,7 +72,9 @@ where
     }
 
     pub async fn next(&self) -> Result<api_tl::enums::Updates, Error> {
-        self.updates_rx.recv_async().await
+        self.updates_rx.as_ref()
+            .expect("we are in no-updates mode")
+            .recv_async().await
             .map_err(|_| Error::Connection)
     }
 
