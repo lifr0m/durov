@@ -56,6 +56,18 @@ where
 
         let (client, auth) = self.create(key).await?;
 
+        if let ClientKey::Media(dc_id) = key {
+            let main = Box::pin(self.get(ClientKey::Main)).await?;
+
+            let exported = main.call(tl::functions::auth::ExportAuthorization { dc_id }).await?;
+            let tl::enums::auth::ExportedAuthorization::ExportedAuthorization(exported) = exported;
+
+            client.call(tl::functions::auth::ImportAuthorization {
+                id: exported.id,
+                bytes: exported.bytes,
+            }).await?;
+        }
+
         self.set_to_cache(key, Arc::clone(&client));
         self.set_to_session(&auth).await?;
 
