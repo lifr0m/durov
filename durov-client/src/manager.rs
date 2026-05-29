@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::datacenters::{get_default_dc, get_public_key};
+use crate::datacenters::{default_dc, PUBLIC_KEY};
 use crate::sessions::auth::Auth;
 use crate::sessions::Session;
 use crate::{tl, Error};
@@ -159,10 +159,9 @@ where
 {
     let dc = Datacenter {
         id: auth.dc_id,
-        prod: config.prod_dc,
         host: auth.dc_host,
         port: auth.dc_port,
-        pubkey: get_public_key(config.prod_dc),
+        pubkey: PUBLIC_KEY,
     };
 
     let client = connect_auth(dc, auth.auth_key, config).await?;
@@ -175,8 +174,7 @@ async fn get_dc<T>(config: &Config, dc_id: Option<i32>, media: bool) -> Result<D
 where
     T: Transport + Send + 'static,
 {
-    let dc = get_default_dc(config.prod_dc);
-    let (client, _) = connect_fresh::<T>(dc, config).await?;
+    let (client, _) = connect_fresh::<T>(default_dc(), config).await?;
     let tl_config = init_connection(&client, config).await?;
 
     let dc_id = match dc_id {
@@ -189,7 +187,7 @@ where
     };
 
     Ok(
-        select_dc(tl_config, dc_id, config.prod_dc, media)
+        select_dc(tl_config, dc_id, media)
             .expect("can't find suitable dc")
     )
 }
@@ -235,7 +233,7 @@ where
     }).await?)
 }
 
-fn select_dc(config: tl::enums::Config, id: i32, prod: bool, media: bool) -> Option<Datacenter> {
+fn select_dc(config: tl::enums::Config, id: i32, media: bool) -> Option<Datacenter> {
     let tl::enums::Config::Config(mut config) = config;
 
     config.dc_options.sort_by_key(|option| {
@@ -257,10 +255,9 @@ fn select_dc(config: tl::enums::Config, id: i32, prod: bool, media: bool) -> Opt
                     && option.id == id
             ).then_some(Datacenter {
                 id: option.id,
-                prod,
                 host: option.ip_address,
                 port: option.port as u16,
-                pubkey: get_public_key(prod),
+                pubkey: PUBLIC_KEY,
             })
         })
 }

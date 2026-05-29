@@ -111,7 +111,7 @@ pub fn step2(res: tl::enums::ResPq, nonce: I128, dc: &Datacenter) -> Result<Step
             nonce,
             server_nonce: res.server_nonce,
             new_nonce,
-            dc: if dc.prod { dc.id } else { dc.id + 10_000 },
+            dc: dc.id,
         }
     );
     let data = data.to_bytes();
