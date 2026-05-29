@@ -6,14 +6,14 @@ pub mod resolve;
 
 use crate::client::updates::updater::Updater;
 use crate::config::Config;
-use durov_mtclient::encrypted::EncryptedClient;
+use crate::manager::Manager;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 pub struct Client<T, S> {
     config: Arc<Config>,
     session: Arc<S>,
-    client: Arc<RwLock<EncryptedClient<T>>>,
+    clients: Arc<Manager<T, S>>,
     updater: Arc<Mutex<Updater>>,
 }
 
@@ -22,7 +22,7 @@ impl<T, S> Clone for Client<T, S> {
         Self {
             config: Arc::clone(&self.config),
             session: Arc::clone(&self.session),
-            client: Arc::clone(&self.client),
+            clients: Arc::clone(&self.clients),
             updater: Arc::clone(&self.updater),
         }
     }

@@ -3,4 +3,5 @@ pub struct Auth {
     pub dc_host: String,
     pub dc_port: u16,
     pub auth_key: [u8; 256],
+    pub media: bool,
 }

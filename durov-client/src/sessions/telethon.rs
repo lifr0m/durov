@@ -78,23 +78,30 @@ impl Session for Telethon {
         Ok(())
     }
 
-    async fn get_auth(&self) -> Result<Option<Auth>, Error> {
-        let row = sqlx::query("SELECT * FROM sessions")
-            .fetch_optional(&self.pool).await?;
+    async fn list_auths(&self) -> Result<Vec<Auth>, Error> {
+        let row_list = sqlx::query("SELECT * FROM sessions")
+            .fetch_all(&self.pool).await?;
 
-        let auth = row.map(|row| Auth {
-            dc_id: row.get("dc_id"),
-            dc_host: row.get("server_address"),
-            dc_port: row.get("port"),
-            auth_key: row.get::<&[u8], _>("auth_key")
-                .try_into()
-                .unwrap(),
-        });
+        let auth_list = row_list.into_iter()
+            .map(|row| Auth {
+                dc_id: row.get("dc_id"),
+                dc_host: row.get("server_address"),
+                dc_port: row.get("port"),
+                auth_key: row.get::<&[u8], _>("auth_key")
+                    .try_into()
+                    .unwrap(),
+                media: false,
+            })
+            .collect();
 
-        Ok(auth)
+        Ok(auth_list)
     }
 
     async fn set_auth(&self, auth: &Auth) -> Result<(), Error> {
+        if auth.media {
+            return Ok(());
+        }
+
         let mut transaction = self.pool.begin().await?;
 
         sqlx::query("DELETE FROM sessions")
@@ -108,6 +115,13 @@ impl Session for Telethon {
             .execute(&mut *transaction).await?;
 
         transaction.commit().await?;
+
+        Ok(())
+    }
+
+    async fn del_auth(&self) -> Result<(), Error> {
+        sqlx::query("DELETE FROM sessions")
+            .execute(&self.pool).await?;
 
         Ok(())
     }

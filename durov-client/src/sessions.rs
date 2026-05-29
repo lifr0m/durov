@@ -27,9 +27,11 @@ pub trait Session: Sized {
     where
         I: Iterator<Item = Peer> + Send;
 
-    async fn get_auth(&self) -> Result<Option<Auth>, Error>;
+    async fn list_auths(&self) -> Result<Vec<Auth>, Error>;
 
     async fn set_auth(&self, auth: &Auth) -> Result<(), Error>;
+
+    async fn del_auth(&self) -> Result<(), Error>;
 
     async fn get_states(&self) -> Result<HashMap<i64, State>, Error>;
 

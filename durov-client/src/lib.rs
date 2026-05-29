@@ -2,6 +2,7 @@ pub mod client;
 pub mod config;
 pub mod sessions;
 pub mod error;
+mod manager;
 mod datacenters;
 
 pub use durov_tl_types::schemas::api as tl;

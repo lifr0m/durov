@@ -21,7 +21,10 @@ impl<T> Clone for Pool<T> {
     }
 }
 
-impl<T: Send + 'static> Pool<T> {
+impl<T> Pool<T>
+where
+    T: Send + 'static,
+{
     pub fn new(on_return: fn(&mut T), timeout: Duration) -> Self {
         let pool = Arc::new(Mutex::new(Vec::new()));
         tokio::spawn(remove_expired_loop(Arc::downgrade(&pool), timeout));

@@ -53,7 +53,7 @@ where
     pub async fn call<F>(&self, func: F) -> Result<F::Result, Error>
     where
         F: Identify + Call + Serialize + Send + 'static,
-        F::Result: Deserialize + Send,
+        F::Result: Deserialize + Send + 'static,
     {
         let (tx, rx) = flume::unbounded();
 
