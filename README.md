@@ -19,7 +19,6 @@ Use `durov-client` crate as the main crate. See examples.
 
 - Working with files:
     - https://corefork.telegram.org/api/files
-    - https://corefork.telegram.org/api/optimisation#downloading-files-and-uploading-data-to-the-server
 
 # Security
 

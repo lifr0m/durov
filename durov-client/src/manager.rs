@@ -54,6 +54,10 @@ where
             DatacenterKey::Concrete(dc_id) => dc_id,
         };
 
+        self.get_inner(dc_id, *main_dc).await
+    }
+
+    async fn get_inner(&self, dc_id: i32, main_dc: i32) -> Result<Arc<EncryptedClient<T>>, Error> {
         let mut guard = self.lock(dc_id).await;
 
         if let Some(client) = self.get_from_cache(&guard) {
@@ -66,10 +70,10 @@ where
             return Ok(client);
         }
 
-        let (client, auth) = self.create_client(dc_id, *main_dc).await?;
+        let (client, auth) = self.create_client(dc_id, main_dc).await?;
 
-        if dc_id != *main_dc {
-            self.authorize_client(&client, dc_id).await?;
+        if dc_id != main_dc {
+            self.authorize_client(&client, dc_id, main_dc).await?;
         }
 
         self.set_to_session(&auth).await?;
@@ -81,13 +85,13 @@ where
     pub async fn switch(&self, dc_id: i32) -> Result<(), Error> {
         let mut main_dc = self.main_dc.write().await;
 
+        self.session.del_auth(*main_dc).await?;
+        self.session.del_auth(dc_id).await?;
+
         self.clients.lock()
             .remove(&main_dc);
         self.clients.lock()
             .remove(&dc_id);
-
-        self.session.del_auth(*main_dc).await?;
-        self.session.del_auth(dc_id).await?;
 
         *main_dc = dc_id;
 
@@ -141,8 +145,8 @@ where
         Ok((client, auth))
     }
 
-    async fn authorize_client(&self, client: &EncryptedClient<T>, dc_id: i32) -> Result<(), Error> {
-        let main = Box::pin(self.get(DatacenterKey::Main)).await?;
+    async fn authorize_client(&self, client: &EncryptedClient<T>, dc_id: i32, main_dc: i32) -> Result<(), Error> {
+        let main = Box::pin(self.get_inner(main_dc, main_dc)).await?;
 
         let authorization = main.call(tl::functions::auth::ExportAuthorization { dc_id }).await?;
         let tl::enums::auth::ExportedAuthorization::ExportedAuthorization(authorization) = authorization;
