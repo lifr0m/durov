@@ -85,13 +85,13 @@ where
     pub async fn switch(&self, dc_id: i32) -> Result<(), Error> {
         let mut main_dc = self.main_dc.write().await;
 
-        self.session.del_auth(*main_dc).await?;
-        self.session.del_auth(dc_id).await?;
-
         self.clients.lock()
             .remove(&main_dc);
         self.clients.lock()
             .remove(&dc_id);
+
+        self.session.del_auth(*main_dc).await?;
+        self.session.del_auth(dc_id).await?;
 
         *main_dc = dc_id;
 

@@ -20,7 +20,7 @@ impl Error {
         }
     }
 
-    pub fn parse<T>(&self, pattern: &str, index: usize) -> Result<T, Error>
+    pub fn parse<T>(&self, pattern: &str, index: usize) -> T
     where
         T: FromStr + Placeholder,
     {
@@ -35,7 +35,7 @@ impl Error {
             .nth(index)
             .unwrap_or_else(|| panic!("invalid rpc error: {}", self.message()))
             .parse()
-            .map_err(|_| panic!("invalid rpc error: {}", self.message()))
+            .unwrap_or_else(|_| panic!("invalid rpc error: {}", self.message()))
     }
 }
 
@@ -54,7 +54,7 @@ mod tests {
                 code: status,
                 message: message.to_string(),
             };
-            assert_eq!(err.parse::<i32>(pattern, index).unwrap(), result);
+            assert_eq!(err.parse::<i32>(pattern, index), result);
         }
     }
 }

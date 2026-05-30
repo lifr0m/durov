@@ -24,4 +24,10 @@ where
 
         Ok(Self { config, session, clients, updater })
     }
+
+    pub async fn switch_dc(&self, dc_id: i32) -> Result<(), Error> {
+        self.clients.switch(dc_id).await?;
+
+        Ok(())
+    }
 }

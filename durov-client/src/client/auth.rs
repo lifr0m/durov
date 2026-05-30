@@ -12,8 +12,8 @@ where
         let sent_code = match self.send_code(phone).await {
             Ok(sent_code) => sent_code,
             Err(err) if err.is(303, "PHONE_MIGRATE") => {
-                let dc_id = err.parse("PHONE_MIGRATE_%d", 0)?;
-                self.clients.switch(dc_id).await?;
+                let dc_id = err.parse("PHONE_MIGRATE_%d", 0);
+                self.switch_dc(dc_id).await?;
                 self.send_code(phone).await?
             }
             Err(err) if err.is(303, "NETWORK_MIGRATE") => {
@@ -61,8 +61,8 @@ where
         match self.import_bot_authorization(token).await {
             Ok(()) => {}
             Err(err) if err.is(303, "USER_MIGRATE") => {
-                let dc_id = err.parse("USER_MIGRATE_%d", 0)?;
-                self.clients.switch(dc_id).await?;
+                let dc_id = err.parse("USER_MIGRATE_%d", 0);
+                self.switch_dc(dc_id).await?;
                 self.import_bot_authorization(token).await?
             }
             Err(err) => return Err(err),
