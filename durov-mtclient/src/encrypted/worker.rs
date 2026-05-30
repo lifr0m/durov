@@ -368,7 +368,7 @@ impl<T: Transport> Worker<T> {
                     }
                 }
             }
-            Err(object) => self.process_messages_ack(object),
+            Err(object) => self.process_messages_ack(msg_id, object),
         }
     }
 
@@ -395,24 +395,25 @@ impl<T: Transport> Worker<T> {
         }
     }
 
-    fn process_messages_ack(&mut self, object: UnpackObject) {
+    fn process_messages_ack(&mut self, msg_id: i64, object: UnpackObject) {
         match object.downcast::<tl::enums::MsgsAck>() {
             Ok(_) => {}
-            Err(object) => self.process_pong(object),
+            Err(object) => self.process_pong(msg_id, object),
         }
     }
 
-    fn process_pong(&mut self, object: UnpackObject) {
+    fn process_pong(&mut self, msg_id: i64, object: UnpackObject) {
         match object.downcast::<tl::enums::Pong>() {
             Ok(_) => {}
-            Err(object) => self.process_updates(object),
+            Err(object) => self.process_updates(msg_id, object),
         }
     }
 
-    fn process_updates(&mut self, object: UnpackObject) {
+    fn process_updates(&mut self, msg_id: i64, object: UnpackObject) {
         match object.downcast::<api_tl::enums::Updates>() {
             Ok(updates) => {
                 self.updates_tx.send(*updates).ok();
+                self.ack.add(msg_id);
             }
             Err(_) => unreachable!("this check should be done in protocol unpack flow"),
         }
