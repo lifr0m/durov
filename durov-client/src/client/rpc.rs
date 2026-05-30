@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::manager::ClientKey;
+use crate::manager::DatacenterKey;
 use crate::sessions::Session;
 use crate::{tl, Error};
 use durov_mtclient::encrypted::EncryptedClient;
@@ -17,16 +17,16 @@ where
         F: Identify + Call + Serialize + Send + 'static,
         F::Result: Deserialize + Send + 'static,
     {
-        let client = self.clients.get(ClientKey::Main).await?;
+        let client = self.clients.get(DatacenterKey::Main).await?;
         self.call_inner(&client, func).await
     }
 
-    pub async fn call_media<F>(&self, dc_id: i32, func: F) -> Result<F::Result, Error>
+    pub async fn call_dc<F>(&self, dc_id: i32, func: F) -> Result<F::Result, Error>
     where
         F: Identify + Call + Serialize + Send + 'static,
         F::Result: Deserialize + Send + 'static,
     {
-        let client = self.clients.get(ClientKey::Media(dc_id)).await?;
+        let client = self.clients.get(DatacenterKey::Concrete(dc_id)).await?;
         self.call_inner(&client, func).await
     }
 

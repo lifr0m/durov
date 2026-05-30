@@ -9,11 +9,19 @@ t6N/byY9Nw9p21Og3AoXSL2q/2IJ1WRUhebgAdGVMlV1fkuOQoEzR7EdpqtQD9Cs
 5+bfo3Nhmcyvk5ftB0WkJ9z6bNZ7yxrP8wIDAQAB
 -----END RSA PUBLIC KEY-----";
 
-pub fn default_dc() -> Datacenter {
+pub fn static_dc(id: i32) -> Datacenter {
+    let (host, port) = match id {
+        1 => ("149.154.175.53", 443),
+        2 => ("149.154.167.41", 443),
+        3 => ("149.154.175.100", 443),
+        4 => ("149.154.167.91", 443),
+        5 => ("91.108.56.155", 443),
+        _ => panic!("invalid dc id: {id}"),
+    };
     Datacenter {
-        id: 2,
-        host: String::from("149.154.167.50"),
-        port: 443,
+        id,
+        host: host.to_string(),
+        port,
         pubkey: PUBLIC_KEY,
     }
 }

@@ -31,7 +31,7 @@ pub trait Session: Sized {
 
     async fn set_auth(&self, auth: &Auth) -> Result<(), Error>;
 
-    async fn del_auth(&self) -> Result<(), Error>;
+    async fn del_auth(&self, dc_id: i32) -> Result<(), Error>;
 
     async fn get_states(&self) -> Result<HashMap<i64, State>, Error>;
 

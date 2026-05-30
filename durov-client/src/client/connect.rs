@@ -18,7 +18,8 @@ where
 
         let config = Arc::new(config);
         let session = Arc::new(session);
-        let clients = Arc::new(Manager::new(Arc::clone(&config), Arc::clone(&session)));
+        let manager = Manager::create(Arc::clone(&config), Arc::clone(&session)).await?;
+        let clients = Arc::new(manager);
         let updater = Arc::new(Mutex::new(Updater::new()));
 
         Ok(Self { config, session, clients, updater })

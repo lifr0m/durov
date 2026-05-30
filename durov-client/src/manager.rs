@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::datacenters::{default_dc, PUBLIC_KEY};
+use crate::datacenters::{static_dc, PUBLIC_KEY};
 use crate::sessions::auth::Auth;
 use crate::sessions::Session;
 use crate::{tl, Error};
@@ -12,108 +12,110 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub enum ClientKey {
+const DEFAULT_DC: i32 = 2;
+
+pub enum DatacenterKey {
     Main,
-    Media(i32),
+    Concrete(i32),
 }
 
 pub struct Manager<T, S> {
     config: Arc<Config>,
     session: Arc<S>,
-    main_dc: Mutex<Option<i32>>,
-    clients: Mutex<HashMap<ClientKey, Arc<EncryptedClient<T>>>>,
-    locks: Mutex<HashMap<ClientKey, Arc<tokio::sync::Mutex<()>>>>,
+    main_dc: RwLock<i32>,
+    clients: Mutex<HashMap<i32, Arc<AsyncMutex<Option<Arc<EncryptedClient<T>>>>>>>,
 }
 
 impl<T: Transport, S: Session> Manager<T, S>
 where
     T: Send + 'static,
 {
-    pub fn new(config: Arc<Config>, session: Arc<S>) -> Self {
-        Self {
+    pub async fn create(config: Arc<Config>, session: Arc<S>) -> Result<Self, Error> {
+        let main_dc = session.list_auths().await?
+            .iter()
+            .find_map(|auth| auth.main.then_some(auth.dc_id))
+            .unwrap_or(DEFAULT_DC);
+
+        Ok(Self {
             config,
             session,
-            main_dc: Mutex::new(None),
+            main_dc: RwLock::new(main_dc),
             clients: Mutex::new(HashMap::new()),
-            locks: Mutex::new(HashMap::new()),
-        }
+        })
     }
 
-    pub async fn get(&self, key: ClientKey) -> Result<Arc<EncryptedClient<T>>, Error> {
-        let _lock = self.lock(key).await;
+    pub async fn get(&self, key: DatacenterKey) -> Result<Arc<EncryptedClient<T>>, Error> {
+        let main_dc = self.main_dc.read().await;
 
-        if let Some(client) = self.get_from_cache(key) {
+        let dc_id = match key {
+            DatacenterKey::Main => *main_dc,
+            DatacenterKey::Concrete(dc_id) => dc_id,
+        };
+
+        let mut guard = self.lock(dc_id).await;
+
+        if let Some(client) = self.get_from_cache(&guard) {
             return Ok(client);
         }
 
-        if let Some(client) = self.get_from_session(key).await? {
-            self.set_to_cache(key, Arc::clone(&client));
+        if let Some(client) = self.get_from_session(dc_id).await? {
+            self.set_to_cache(&mut guard, Arc::clone(&client));
 
             return Ok(client);
         }
 
-        let (client, auth) = self.create(key).await?;
+        let (client, auth) = self.create_client(dc_id, *main_dc).await?;
 
-        if let ClientKey::Media(dc_id) = key {
-            let main = Box::pin(self.get(ClientKey::Main)).await?;
-
-            let exported = main.call(tl::functions::auth::ExportAuthorization { dc_id }).await?;
-            let tl::enums::auth::ExportedAuthorization::ExportedAuthorization(exported) = exported;
-
-            client.call(tl::functions::auth::ImportAuthorization {
-                id: exported.id,
-                bytes: exported.bytes,
-            }).await?;
+        if dc_id != *main_dc {
+            self.authorize_client(&client, dc_id).await?;
         }
 
-        self.set_to_cache(key, Arc::clone(&client));
         self.set_to_session(&auth).await?;
+        self.set_to_cache(&mut guard, Arc::clone(&client));
 
         Ok(client)
     }
 
     pub async fn switch(&self, dc_id: i32) -> Result<(), Error> {
-        let _lock = self.lock(ClientKey::Main).await;
+        let mut main_dc = self.main_dc.write().await;
 
         self.clients.lock()
-            .remove(&ClientKey::Main);
+            .remove(&main_dc);
+        self.clients.lock()
+            .remove(&dc_id);
 
-        self.session.del_auth().await?;
+        self.session.del_auth(*main_dc).await?;
+        self.session.del_auth(dc_id).await?;
 
-        *self.main_dc.lock() = Some(dc_id);
+        *main_dc = dc_id;
 
         Ok(())
     }
 
-    async fn lock(&self, key: ClientKey) -> tokio::sync::OwnedMutexGuard<()> {
+    async fn lock(&self, dc_id: i32) -> tokio::sync::OwnedMutexGuard<Option<Arc<EncryptedClient<T>>>> {
         let lock = {
-            let mut map = self.locks.lock();
-            let lock = map.entry(key).or_default();
+            let mut map = self.clients.lock();
+            let lock = map.entry(dc_id).or_default();
             Arc::clone(lock)
         };
         lock.lock_owned().await
     }
 
-    fn get_from_cache(&self, key: ClientKey) -> Option<Arc<EncryptedClient<T>>> {
-        self.clients.lock()
-            .get(&key)
+    fn get_from_cache(&self, guard: &Option<Arc<EncryptedClient<T>>>) -> Option<Arc<EncryptedClient<T>>> {
+        guard.as_ref()
             .map(Arc::clone)
     }
 
-    fn set_to_cache(&self, key: ClientKey, client: Arc<EncryptedClient<T>>) {
-        self.clients.lock()
-            .insert(key, client);
+    fn set_to_cache(&self, guard: &mut Option<Arc<EncryptedClient<T>>>, client: Arc<EncryptedClient<T>>) {
+        *guard = Some(client);
     }
 
-    async fn get_from_session(&self, key: ClientKey) -> Result<Option<Arc<EncryptedClient<T>>>, Error> {
+    async fn get_from_session(&self, dc_id: i32) -> Result<Option<Arc<EncryptedClient<T>>>, Error> {
         let auth = self.session.list_auths().await?
             .into_iter()
-            .find(|auth| match key {
-                ClientKey::Main => !auth.media,
-                ClientKey::Media(dc_id) => auth.dc_id == dc_id && auth.media,
-            });
+            .find(|auth| auth.dc_id == dc_id);
 
         match auth {
             None => Ok(None),
@@ -131,36 +133,43 @@ where
         Ok(())
     }
 
-    async fn create(&self, key: ClientKey) -> Result<(Arc<EncryptedClient<T>>, Auth), Error> {
-        let (dc_id, media) = match (key, *self.main_dc.lock()) {
-            (ClientKey::Main, None) => (None, false),
-            (ClientKey::Main, Some(dc_id)) => (Some(dc_id), false),
-            (ClientKey::Media(dc_id), _) => (Some(dc_id), true),
-        };
-
-        let (client, auth) = fresh_client(&self.config, dc_id, media).await?;
+    async fn create_client(&self, dc_id: i32, main_dc: i32) -> Result<(Arc<EncryptedClient<T>>, Auth), Error> {
+        let main = dc_id == main_dc;
+        let (client, auth) = fresh_client(&self.config, dc_id, main).await?;
         let client = Arc::new(client);
 
         Ok((client, auth))
     }
+
+    async fn authorize_client(&self, client: &EncryptedClient<T>, dc_id: i32) -> Result<(), Error> {
+        let main = Box::pin(self.get(DatacenterKey::Main)).await?;
+
+        let authorization = main.call(tl::functions::auth::ExportAuthorization { dc_id }).await?;
+        let tl::enums::auth::ExportedAuthorization::ExportedAuthorization(authorization) = authorization;
+
+        client.call(tl::functions::auth::ImportAuthorization {
+            id: authorization.id,
+            bytes: authorization.bytes,
+        }).await?;
+
+        Ok(())
+    }
 }
 
-async fn fresh_client<T>(config: &Config, dc_id: Option<i32>, media: bool)
-    -> Result<(EncryptedClient<T>, Auth), Error>
+async fn fresh_client<T>(config: &Config, dc_id: i32, main: bool) -> Result<(EncryptedClient<T>, Auth), Error>
 where
     T: Transport + Send + 'static,
 {
-    let dc = get_dc::<T>(config, dc_id, media).await?;
-
-    let (client, auth_key) = connect_fresh(dc.clone(), config).await?;
-    init_connection(&client, config).await?;
+    let dc = static_dc(dc_id);
+    let (client, auth_key) = connect_fresh(config, dc.clone()).await?;
+    init_connection(config, &client).await?;
 
     let auth = Auth {
         dc_id: dc.id,
         dc_host: dc.host,
         dc_port: dc.port,
         auth_key,
-        media,
+        main,
     };
     Ok((client, auth))
 }
@@ -176,36 +185,13 @@ where
         pubkey: PUBLIC_KEY,
     };
 
-    let client = connect_auth(dc, auth.auth_key, config).await?;
-    init_connection(&client, config).await?;
+    let client = connect_auth(config, dc, auth.auth_key).await?;
+    init_connection(config, &client).await?;
 
     Ok(client)
 }
 
-async fn get_dc<T>(config: &Config, dc_id: Option<i32>, media: bool) -> Result<Datacenter, Error>
-where
-    T: Transport + Send + 'static,
-{
-    let (client, _) = connect_fresh::<T>(default_dc(), config).await?;
-    let tl_config = init_connection(&client, config).await?;
-
-    let dc_id = match dc_id {
-        Some(dc_id) => dc_id,
-        None => {
-            let nearest = client.call(tl::functions::help::GetNearestDc {}).await?;
-            let tl::enums::NearestDc::NearestDc(nearest) = nearest;
-            nearest.nearest_dc
-        }
-    };
-
-    Ok(
-        select_dc(tl_config, dc_id, media)
-            .expect("can't find suitable dc")
-    )
-}
-
-async fn connect_fresh<T>(dc: Datacenter, config: &Config)
-    -> Result<(EncryptedClient<T>, [u8; 256]), Error>
+async fn connect_fresh<T>(config: &Config, dc: Datacenter) -> Result<(EncryptedClient<T>, [u8; 256]), Error>
 where
     T: Transport + Send + 'static,
 {
@@ -214,8 +200,7 @@ where
     Ok(client.auth().await?)
 }
 
-async fn connect_auth<T>(dc: Datacenter, auth_key: [u8; 256], config: &Config)
-    -> Result<EncryptedClient<T>, Error>
+async fn connect_auth<T>(config: &Config, dc: Datacenter, auth_key: [u8; 256]) -> Result<EncryptedClient<T>, Error>
 where
     T: Transport + Send + 'static,
 {
@@ -223,8 +208,7 @@ where
     Ok(EncryptedClient::connect(mt_config, auth_key).await?)
 }
 
-async fn init_connection<T>(client: &EncryptedClient<T>, config: &Config)
-    -> Result<tl::enums::Config, Error>
+async fn init_connection<T>(config: &Config, client: &EncryptedClient<T>) -> Result<tl::enums::Config, Error>
 where
     T: Transport + Send + 'static,
 {
@@ -243,35 +227,6 @@ where
             query: tl::functions::help::GetConfig {},
         },
     }).await?)
-}
-
-fn select_dc(config: tl::enums::Config, id: i32, media: bool) -> Option<Datacenter> {
-    let tl::enums::Config::Config(mut config) = config;
-
-    config.dc_options.sort_by_key(|option| {
-        let tl::enums::DcOption::DcOption(option) = option;
-
-        !option.media_only
-    });
-
-    config.dc_options.into_iter()
-        .find_map(|option| {
-            let tl::enums::DcOption::DcOption(option) = option;
-
-            (
-                !option.ipv6
-                    && (media || !option.media_only)
-                    && !option.tcpo_only
-                    && !option.cdn
-                    && option.static_
-                    && option.id == id
-            ).then_some(Datacenter {
-                id: option.id,
-                host: option.ip_address,
-                port: option.port as u16,
-                pubkey: PUBLIC_KEY,
-            })
-        })
 }
 
 fn create_mt_config(config: &Config, dc: Datacenter) -> MtConfig {

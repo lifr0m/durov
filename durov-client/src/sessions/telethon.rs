@@ -90,7 +90,7 @@ impl Session for Telethon {
                 auth_key: row.get::<&[u8], _>("auth_key")
                     .try_into()
                     .unwrap(),
-                media: false,
+                main: true,
             })
             .collect();
 
@@ -98,7 +98,7 @@ impl Session for Telethon {
     }
 
     async fn set_auth(&self, auth: &Auth) -> Result<(), Error> {
-        if auth.media {
+        if !auth.main {
             return Ok(());
         }
 
@@ -119,8 +119,9 @@ impl Session for Telethon {
         Ok(())
     }
 
-    async fn del_auth(&self) -> Result<(), Error> {
-        sqlx::query("DELETE FROM sessions")
+    async fn del_auth(&self, dc_id: i32) -> Result<(), Error> {
+        sqlx::query("DELETE FROM sessions WHERE dc_id = ?")
+            .bind(dc_id)
             .execute(&self.pool).await?;
 
         Ok(())
