@@ -3,6 +3,7 @@ pub mod connect;
 pub mod rpc;
 pub mod updates;
 pub mod resolve;
+pub mod files;
 
 use crate::client::updates::updater::Updater;
 use crate::config::Config;

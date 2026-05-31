@@ -10,9 +10,12 @@ durov-mtproto = { path = "../durov-mtproto" }
 durov-crypto = { path = "../durov-crypto" }
 durov-tl-types = { path = "../durov-tl-types" }
 sqlx = { version = "0.9", features = ["runtime-tokio"] }
+rand = "0.10"
 dialoguer = "0.12"
 async-trait = "0.1"
 parking_lot = "0.12"
+md-5 = "0.11"
+hex = "0.4"
 tracing = "0.1"
 
 [dev-dependencies]

@@ -14,8 +14,10 @@ use std::time::SystemTime;
 use tl::types::updates::State;
 
 #[async_trait]
-pub trait Session: Sized {
-    async fn connect(info: &str) -> Result<Self, Error>;
+pub trait Session {
+    async fn connect(info: &str) -> Result<Self, Error>
+    where
+        Self: Sized;
 
     async fn init(&self) -> Result<(), Error>;
 

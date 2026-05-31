@@ -7,9 +7,13 @@ mod datacenters;
 
 pub use durov_tl_types::schemas::api as tl;
 use thiserror::Error;
+use tokio::io;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("io: {0}")]
+    Io(#[from] io::Error),
+    
     #[error("mtproto client: {0}")]
     MtClient(durov_mtclient::Error),
 
