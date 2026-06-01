@@ -4,7 +4,7 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2"
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "io-util", "fs"] }
 durov-mtclient = { path = "../durov-mtclient" }
 durov-mtproto = { path = "../durov-mtproto" }
 durov-crypto = { path = "../durov-crypto" }

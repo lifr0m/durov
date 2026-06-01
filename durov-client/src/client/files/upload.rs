@@ -1,30 +1,75 @@
-use async_trait::async_trait;
-use std::path::Path;
-use tokio::fs::File;
-use tokio::io;
+pub mod data;
+mod work;
+
+use crate::client::files::join_futures;
+use crate::client::files::upload::data::Upload;
+use crate::client::files::upload::work::{run_worker, State};
+use crate::client::Client;
+use crate::sessions::Session;
+use crate::{tl, Error};
+use durov_mtproto::transports::Transport;
+use md5::{Digest, Md5};
+use std::sync::Arc;
 use tokio::io::AsyncRead;
+use tokio::sync::Mutex;
 
-#[async_trait(?Send)]
-pub trait Upload<S>
-where
-    S: AsyncRead,
-{
-    async fn stream(self) -> io::Result<S>;
-}
+const WORKER_COUNT: usize = 16;
 
-#[async_trait(?Send)]
-impl<S> Upload<S> for S
+impl<T: Transport, S: Session> Client<T, S>
 where
-    S: AsyncRead,
+    T: Send + Sync + 'static,
+    S: Send + Sync + 'static,
 {
-    async fn stream(self) -> io::Result<S> {
-        Ok(self)
+    pub async fn upload_photo<D, R>(&self, data: D) -> Result<tl::enums::InputFile, Error>
+    where
+        D: Upload<R>,
+        R: AsyncRead + Unpin + Send + 'static,
+    {
+        self.upload_file::<R, Md5>(data.into_stream().await?, false).await
     }
-}
 
-#[async_trait(?Send)]
-impl Upload<File> for &Path {
-    async fn stream(self) -> io::Result<File> {
-        File::open(self).await
+    pub async fn upload_document<D, R>(&self, data: D) -> Result<tl::enums::InputFile, Error>
+    where
+        D: Upload<R>,
+        R: AsyncRead + Unpin + Send + 'static,
+    {
+        self.upload_file::<R, Md5>(data.into_stream().await?, true).await
+    }
+
+    async fn upload_file<R, H>(&self, stream: R, big: bool) -> Result<tl::enums::InputFile, Error>
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        H: Digest + Send + 'static,
+    {
+        let file_id = rand::random();
+
+        let state = State::new(stream, H::new());
+        let state = Arc::new(Mutex::new(state));
+
+        let futures = (0..WORKER_COUNT)
+            .map(|_| run_worker(self.clone(), Arc::clone(&state), file_id, big));
+        join_futures(futures).await?;
+
+        let state = Arc::into_inner(state)
+            .expect("all tasks should be joined")
+            .into_inner();
+
+        if big {
+            Ok(tl::types::InputFileBig {
+                id: file_id,
+                parts: state.file_total_parts,
+                name: String::new(),
+            }.into())
+        } else {
+            let hash = state.hasher.finalize();
+            let md5_checksum = hex::encode(hash);
+
+            Ok(tl::types::InputFile {
+                id: file_id,
+                parts: state.file_total_parts,
+                name: String::new(),
+                md5_checksum,
+            }.into())
+        }
     }
 }
