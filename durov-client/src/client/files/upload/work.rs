@@ -67,7 +67,9 @@ where
 
             state.total_stream_size += bytes.len();
 
-            state.hasher.update(&bytes);
+            if !big {
+                state.hasher.update(&bytes);
+            }
 
             state.file_total_parts = if last {
                 state.total_stream_size.div_ceil(PART_SIZE) as i32

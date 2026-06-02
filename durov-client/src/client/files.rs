@@ -1,4 +1,5 @@
 pub mod upload;
+pub mod download;
 
 use tokio::task::JoinSet;
 

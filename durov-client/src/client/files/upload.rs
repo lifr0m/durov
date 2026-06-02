@@ -20,20 +20,20 @@ where
     T: Send + Sync + 'static,
     S: Send + Sync + 'static,
 {
-    pub async fn upload_photo<D, R>(&self, data: D) -> Result<tl::enums::InputFile, Error>
+    pub async fn upload_photo<D>(&self, data: D) -> Result<tl::enums::InputFile, Error>
     where
-        D: Upload<R>,
-        R: AsyncRead + Unpin + Send + 'static,
+        D: Upload,
+        D::Stream: Unpin + Send + 'static,
     {
-        self.upload_file::<R, Md5>(data.into_stream().await?, false).await
+        self.upload_file::<_, Md5>(data.into_stream().await?, false).await
     }
 
-    pub async fn upload_document<D, R>(&self, data: D) -> Result<tl::enums::InputFile, Error>
+    pub async fn upload_document<D>(&self, data: D) -> Result<tl::enums::InputFile, Error>
     where
-        D: Upload<R>,
-        R: AsyncRead + Unpin + Send + 'static,
+        D: Upload,
+        D::Stream: Unpin + Send + 'static,
     {
-        self.upload_file::<R, Md5>(data.into_stream().await?, true).await
+        self.upload_file::<_, Md5>(data.into_stream().await?, true).await
     }
 
     async fn upload_file<R, H>(&self, stream: R, big: bool) -> Result<tl::enums::InputFile, Error>
@@ -46,9 +46,9 @@ where
         let state = State::new(stream, H::new());
         let state = Arc::new(Mutex::new(state));
 
-        let futures = (0..WORKER_COUNT)
+        let iter = (0..WORKER_COUNT)
             .map(|_| run_worker(self.clone(), Arc::clone(&state), file_id, big));
-        join_futures(futures).await?;
+        join_futures(iter).await?;
 
         let state = Arc::into_inner(state)
             .expect("all tasks should be joined")
