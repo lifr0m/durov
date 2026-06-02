@@ -8,7 +8,6 @@ mod helpers;
 mod timed;
 mod protocol;
 mod request;
-mod pool;
 
 use crate::config::MtConfig;
 use crate::encrypted::request::{CallData, Request};

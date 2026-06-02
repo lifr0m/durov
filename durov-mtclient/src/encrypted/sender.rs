@@ -1,4 +1,3 @@
-use crate::encrypted::pool::item::Provided;
 use durov_tl_types::buffer::Buffer;
 use std::collections::VecDeque;
 use tokio::io;
@@ -7,7 +6,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 
 pub struct Sender {
     writer: OwnedWriteHalf,
-    pub bufs: VecDeque<Provided<Buffer>>,
+    pub bufs: VecDeque<Buffer>,
     pub pos: usize,
 }
 

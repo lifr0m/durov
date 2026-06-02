@@ -2,7 +2,6 @@ use crate::config::MtConfig;
 use crate::encrypted::ack::Ack;
 use crate::encrypted::complications::redirect_updates;
 use crate::encrypted::helpers::Chunks;
-use crate::encrypted::pool::Pool;
 use crate::encrypted::protocol::{EncryptedWorker, ProtoAction, ProtoPacked};
 use crate::encrypted::receiver::Receiver;
 use crate::encrypted::request::{CallData, Request};
@@ -13,7 +12,6 @@ use durov_mtproto::protocols::encrypted::object::{PackObject, UnpackObject};
 use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult, Unpacked};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
-use durov_tl_types::buffer::Buffer;
 use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
 use parking_lot::Mutex;
@@ -42,8 +40,6 @@ enum Error {
 }
 
 pub struct Worker<T> {
-    bufs: Pool<Buffer>,
-
     sender: Sender,
     receiver: Receiver,
     transport: T,
@@ -78,7 +74,6 @@ impl<T: Transport> Worker<T> {
         req_rx: flume::Receiver<Request>,
         updates_tx: flume::Sender<api_tl::enums::Updates>,
     ) -> Self {
-        let bufs = Pool::new(Buffer::clear, Duration::from_mins(5));
         let (reader, writer) = stream.into_split();
         let (proto_tx, proto_rx) = flume::unbounded();
         let (packed_tx, packed_rx) = flume::unbounded();
@@ -87,7 +82,6 @@ impl<T: Transport> Worker<T> {
 
         for _ in 0..config.parallelism {
             tokio::spawn(EncryptedWorker {
-                bufs: bufs.clone(),
                 protocol: protocol.clone(),
                 rpc_map: Arc::clone(&rpc_map),
                 proto_rx: proto_rx.clone(),
@@ -97,9 +91,8 @@ impl<T: Transport> Worker<T> {
         }
 
         Self {
-            bufs: bufs.clone(),
             sender: Sender::new(writer),
-            receiver: Receiver::new(reader, bufs.provide()),
+            receiver: Receiver::new(reader),
             transport,
             protocol,
             req_tick: {
@@ -288,7 +281,7 @@ impl<T: Transport> Worker<T> {
     fn process_recv_buf(&mut self) -> Result<(), Error> {
         match self.transport.unpack(&mut self.receiver.buf) {
             Ok(()) => {
-                let buf = mem::replace(&mut self.receiver.buf, self.bufs.provide());
+                let buf = mem::take(&mut self.receiver.buf);
                 self.proto_tx.send(ProtoAction::Unpack(buf))
                     .expect("protocol worker should not stop");
             }
