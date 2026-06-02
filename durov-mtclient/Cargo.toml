@@ -11,6 +11,5 @@ durov-tl-types = { path = "../durov-tl-types" }
 flume = "0.12"
 rand = "0.10"
 bytes = "1"
-parking_lot = "0.12"
 fast-socks5 = "1"
 tracing = "0.1"

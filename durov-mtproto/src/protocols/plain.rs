@@ -55,7 +55,7 @@ impl Plain {
 
         let msg_id = i64::from_le_bytes(buf.array(8));
 
-        check_msg_id(self.time_diff, &mut self.msg_id_history, 1, msg_id, None)?;
+        check_msg_id(self.time_diff, &mut self.msg_id_history, msg_id, None)?;
 
         let len = i32::from_le_bytes(buf.array(16));
 

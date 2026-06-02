@@ -119,7 +119,7 @@ where
     }
 
     fn upgrade(self, auth_key: [u8; 256]) -> EncryptedClient<T> {
-        let protocol = Encrypted::new(auth_key, self.config.use_gzip, self.config.parallelism);
+        let protocol = Encrypted::new(auth_key, self.config.use_gzip);
         EncryptedClient::new(self.config, self.stream, self.transport, protocol)
     }
 }

@@ -11,7 +11,6 @@ use durov_mtproto::transports::Transport;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 const DEFAULT_DC: i32 = 2;
@@ -239,12 +238,5 @@ fn create_mt_config(config: &Config, dc: Datacenter) -> MtConfig {
         proxy: config.proxy.clone(),
         use_gzip: config.use_compression,
         updates: config.updates,
-        parallelism: if config.high_load {
-            thread::available_parallelism()
-                .unwrap()
-                .get()
-        } else {
-            1
-        },
     }
 }

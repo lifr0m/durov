@@ -6,7 +6,6 @@ mod salt;
 mod complications;
 mod helpers;
 mod timed;
-mod protocol;
 mod request;
 
 use crate::config::MtConfig;
@@ -38,14 +37,14 @@ where
         let (req_tx, req_rx) = flume::unbounded();
         let (updates_tx, updates_rx) = flume::unbounded();
         let updates_rx = config.updates.then_some(updates_rx);
-        tokio::spawn(Worker::new(config, stream, transport, protocol, req_tx.clone(), req_rx, updates_tx).run());
+        tokio::spawn(Worker::new(stream, transport, protocol, req_tx.clone(), req_rx, updates_tx).run());
         Self { req_tx, updates_rx, _transport: PhantomData }
     }
 
     pub async fn connect(config: MtConfig, auth_key: [u8; 256]) -> Result<Self, Error> {
         let stream = tcp::connect(&config.dc, config.proxy.as_ref()).await?;
         let transport = T::default();
-        let protocol = Encrypted::new(auth_key, config.use_gzip, config.parallelism);
+        let protocol = Encrypted::new(auth_key, config.use_gzip);
         Ok(Self::new(config, stream, transport, protocol))
     }
 

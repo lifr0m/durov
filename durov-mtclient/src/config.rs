@@ -6,5 +6,4 @@ pub struct MtConfig {
     pub proxy: Option<Proxy>,
     pub use_gzip: bool,
     pub updates: bool,
-    pub parallelism: usize,
 }

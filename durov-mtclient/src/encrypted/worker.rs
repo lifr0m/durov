@@ -1,22 +1,19 @@
-use crate::config::MtConfig;
 use crate::encrypted::ack::Ack;
 use crate::encrypted::complications::redirect_updates;
 use crate::encrypted::helpers::Chunks;
-use crate::encrypted::protocol::{EncryptedWorker, ProtoAction, ProtoPacked};
 use crate::encrypted::receiver::Receiver;
 use crate::encrypted::request::{CallData, Request};
 use crate::encrypted::salt::FutureSalts;
 use crate::encrypted::sender::Sender;
 use crate::encrypted::timed::Timed;
-use durov_mtproto::protocols::encrypted::object::{PackObject, UnpackObject};
-use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult, Unpacked};
+use durov_mtproto::protocols::encrypted::object::{deserialize_object, PackObject, UnpackObject};
+use durov_mtproto::protocols::encrypted::{Encrypted, RpcResult, UnpackParams};
 use durov_mtproto::protocols::time::{get_now, parse_msg_id};
 use durov_mtproto::transports::Transport;
+use durov_tl_types::buffer::Buffer;
 use durov_tl_types::schemas::api as api_tl;
 use durov_tl_types::schemas::mtproto as tl;
-use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use std::{iter, mem};
 use thiserror::Error;
@@ -48,13 +45,10 @@ pub struct Worker<T> {
     req_tick: time::Interval,
     req_tx: flume::Sender<Request>,
     req_rx: flume::Receiver<Request>,
-    proto_tx: flume::Sender<ProtoAction>,
-    packed_rx: flume::Receiver<ProtoPacked>,
-    unpacked_rx: flume::Receiver<Result<Vec<Unpacked>, durov_mtproto::protocols::Error>>,
 
     container_map: HashMap<i64, Timed<Vec<i64>>>,
     service_map: HashMap<i64, Timed<PackObject>>,
-    rpc_map: Arc<Mutex<HashMap<i64, CallData>>>,
+    rpc_map: HashMap<i64, CallData>,
     msg_expiration: time::Interval,
 
     updates_tx: flume::Sender<api_tl::enums::Updates>,
@@ -66,7 +60,6 @@ pub struct Worker<T> {
 
 impl<T: Transport> Worker<T> {
     pub fn new(
-        config: MtConfig,
         stream: TcpStream,
         transport: T,
         protocol: Encrypted,
@@ -75,20 +68,6 @@ impl<T: Transport> Worker<T> {
         updates_tx: flume::Sender<api_tl::enums::Updates>,
     ) -> Self {
         let (reader, writer) = stream.into_split();
-        let (proto_tx, proto_rx) = flume::unbounded();
-        let (packed_tx, packed_rx) = flume::unbounded();
-        let (unpacked_tx, unpacked_rx) = flume::unbounded();
-        let rpc_map = Arc::new(Mutex::new(HashMap::new()));
-
-        for _ in 0..config.parallelism {
-            tokio::spawn(EncryptedWorker {
-                protocol: protocol.clone(),
-                rpc_map: Arc::clone(&rpc_map),
-                proto_rx: proto_rx.clone(),
-                packed_tx: packed_tx.clone(),
-                unpacked_tx: unpacked_tx.clone(),
-            }.run());
-        }
 
         Self {
             sender: Sender::new(writer),
@@ -102,12 +81,9 @@ impl<T: Transport> Worker<T> {
             },
             req_tx,
             req_rx,
-            proto_tx,
-            packed_rx,
-            unpacked_rx,
             container_map: HashMap::new(),
             service_map: HashMap::new(),
-            rpc_map,
+            rpc_map: HashMap::new(),
             msg_expiration: {
                 let mut interval = time::interval(Duration::from_secs(1));
                 interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -145,12 +121,6 @@ impl<T: Transport> Worker<T> {
             }
             _ = self.req_tick.tick() => {
                 self.on_req_tick()?;
-            }
-            packed = self.packed_rx.recv_async() => {
-                self.on_packed(packed.expect("protocol worker should not stop"));
-            }
-            list = self.unpacked_rx.recv_async() => {
-                self.on_unpacked(list.expect("protocol worker should not stop")?);
             }
             _ = self.msg_expiration.tick() => {
                 self.on_msg_expiration();
@@ -199,41 +169,41 @@ impl<T: Transport> Worker<T> {
 
         if !requests.is_empty() {
             requests.extend(self.new_ack_requests());
-            for chunk in requests.into_iter().chunks(1024) {
-                self.proto_tx.send(ProtoAction::Pack(chunk))
-                    .expect("protocol worker should not stop");
+
+            for chunk in requests.into_iter()
+                .chunks::<Vec<_>>(1024)
+            {
+                let objects = chunk.iter()
+                    .map(|req| match req {
+                        Request::Service(object) => object,
+                        Request::Rpc(call) => &call.body,
+                    })
+                    .collect::<Vec<_>>();
+
+                let mut buf = Buffer::new();
+                let packed = self.protocol.pack(&mut buf, &objects);
+
+                self.transport.pack(&mut buf);
+                self.sender.bufs.push_back(buf);
+
+                if let Some(msg_id) = packed.container_msg_id {
+                    self.container_map.insert(msg_id, Timed::new(packed.msg_ids.clone()));
+                }
+
+                for (msg_id, req) in iter::zip(packed.msg_ids, chunk) {
+                    match req {
+                        Request::Service(object) => {
+                            self.service_map.insert(msg_id, Timed::new(object));
+                        }
+                        Request::Rpc(call) => {
+                            self.rpc_map.insert(msg_id, call);
+                        }
+                    }
+                }
             }
         }
 
         Ok(())
-    }
-
-    fn on_packed(&mut self, mut packed: ProtoPacked) {
-        self.transport.pack(&mut packed.buf);
-        self.sender.bufs.push_back(packed.buf);
-
-        let mut rpc_map = self.rpc_map.lock();
-
-        for (&msg_id, req) in iter::zip(&packed.packed.msg_ids, packed.requests) {
-            match req {
-                Request::Service(object) => {
-                    self.service_map.insert(msg_id, Timed::new(object));
-                }
-                Request::Rpc(call) => {
-                    rpc_map.insert(msg_id, call);
-                }
-            }
-        }
-
-        if let Some(msg_id) = packed.packed.container_msg_id {
-            self.container_map.insert(msg_id, Timed::new(packed.packed.msg_ids));
-        }
-    }
-
-    fn on_unpacked(&mut self, list: Vec<Unpacked>) {
-        for unpacked in list {
-            self.process_object(unpacked.msg_id, unpacked.object);
-        }
     }
 
     fn on_msg_expiration(&mut self) {
@@ -281,9 +251,27 @@ impl<T: Transport> Worker<T> {
     fn process_recv_buf(&mut self) -> Result<(), Error> {
         match self.transport.unpack(&mut self.receiver.buf) {
             Ok(()) => {
-                let buf = mem::take(&mut self.receiver.buf);
-                self.proto_tx.send(ProtoAction::Unpack(buf))
-                    .expect("protocol worker should not stop");
+                let mut buf = mem::take(&mut self.receiver.buf);
+
+                let params = UnpackParams {
+                    list: &[
+                        &deserialize_object::<tl::enums::NewSession>,
+                        &deserialize_object::<tl::enums::FutureSalts>,
+                        &deserialize_object::<tl::enums::BadMsgNotification>,
+                        &deserialize_object::<tl::enums::MsgsAck>,
+                        &deserialize_object::<tl::enums::Pong>,
+                        &deserialize_object::<api_tl::enums::Updates>,
+                    ],
+                    resolve: &|msg_id| {
+                        self.rpc_map.get(&msg_id)
+                            .map(|call| call.deserialize)
+                    },
+                };
+                let list = self.protocol.unpack(&mut buf, params)?;
+
+                for unpacked in list {
+                    self.process_object(unpacked.msg_id, unpacked.object);
+                }
             }
             Err(durov_mtproto::transports::Error::MissingBytes(missing)) => {
                 self.receiver.limit += missing;
@@ -297,9 +285,9 @@ impl<T: Transport> Worker<T> {
     fn process_object(&mut self, msg_id: i64, object: UnpackObject) {
         match object.downcast::<RpcResult>() {
             Ok(mut rpc) => {
-                let call = self.rpc_map.lock().remove(&rpc.req_msg_id)
+                let call = self.rpc_map.remove(&rpc.req_msg_id)
                     .expect("this check should be done in protocol unpack flow");
-                redirect_updates(&self.updates_tx, call.body.as_ref(), &mut rpc.result);
+                redirect_updates(&self.updates_tx, &*call.body, &mut rpc.result);
                 call.callback.send(rpc.result).ok();
                 self.ack.add(msg_id);
             }
@@ -377,7 +365,7 @@ impl<T: Transport> Worker<T> {
             if log {
                 tracing::warn!(code, "received bad msg notification for service message");
             }
-        } else if let Some(call) = self.rpc_map.lock().remove(&msg_id) {
+        } else if let Some(call) = self.rpc_map.remove(&msg_id) {
             self.req_tx.send(Request::Rpc(call))
                 .expect("we are in running worker");
             if log {
