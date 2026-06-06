@@ -9,11 +9,13 @@ use crate::sessions::Session;
 use crate::{tl, Error};
 use durov_mtproto::transports::Transport;
 use md5::{Digest, Md5};
+use std::iter;
 use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio::sync::Mutex;
 
-const WORKER_COUNT: usize = 16;
+const CONNECTION_COUNT: usize = 8;
+const WORKER_PER_CONNECTION: usize = 2;
 
 impl<T: Transport, S: Session> Client<T, S>
 where
@@ -46,8 +48,8 @@ where
         let state = State::new(stream, H::new());
         let state = Arc::new(Mutex::new(state));
 
-        let iter = (0..WORKER_COUNT)
-            .map(|_| run_worker(self.clone(), Arc::clone(&state), file_id, big));
+        let iter = iter::zip(0..CONNECTION_COUNT, 0..WORKER_PER_CONNECTION)
+            .map(|(conn_id, _)| run_worker(self.clone(), Arc::clone(&state), file_id, conn_id as i32, big));
         join_futures(iter).await?;
 
         let state = Arc::into_inner(state)

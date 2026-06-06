@@ -1,8 +1,7 @@
 use crate::client::Client;
-use crate::manager::DatacenterKey;
+use crate::manager::ClientKey;
 use crate::sessions::Session;
 use crate::{tl, Error};
-use durov_mtclient::encrypted::EncryptedClient;
 use durov_mtproto::transports::Transport;
 use durov_tl_types::deserialize::Deserialize;
 use durov_tl_types::serialize::Serialize;
@@ -17,24 +16,16 @@ where
         F: Identify + Call + Serialize + Send + 'static,
         F::Result: Deserialize + Send + 'static,
     {
-        let client = self.clients.get(DatacenterKey::Main).await?;
-        self.call_inner(&client, func).await
+        self.call_key(ClientKey::Main, func).await
     }
 
-    pub async fn call_dc<F>(&self, dc_id: i32, func: F) -> Result<F::Result, Error>
+    pub async fn call_key<F>(&self, key: ClientKey, func: F) -> Result<F::Result, Error>
     where
         F: Identify + Call + Serialize + Send + 'static,
         F::Result: Deserialize + Send + 'static,
     {
-        let client = self.clients.get(DatacenterKey::Concrete(dc_id)).await?;
-        self.call_inner(&client, func).await
-    }
+        let client = self.clients.get(key).await?;
 
-    async fn call_inner<F>(&self, client: &EncryptedClient<T>, func: F) -> Result<F::Result, Error>
-    where
-        F: Identify + Call + Serialize + Send + 'static,
-        F::Result: Deserialize + Send + 'static,
-    {
         if self.config.updates {
             Ok(client.call(func).await?)
         } else {

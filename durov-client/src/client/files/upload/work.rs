@@ -1,4 +1,5 @@
 use crate::client::Client;
+use crate::manager::ClientKey;
 use crate::sessions::Session;
 use crate::{tl, Error};
 use durov_mtproto::transports::Transport;
@@ -36,6 +37,7 @@ pub async fn run_worker<T, S, R, H>(
     client: Client<T, S>,
     state: Arc<Mutex<State<R, H>>>,
     file_id: i64,
+    conn_id: i32,
     big: bool,
 ) -> Result<(), Error>
 where
@@ -80,15 +82,17 @@ where
             (file_part, state.file_total_parts, bytes, last)
         };
 
+        let key = ClientKey::Upload { conn_id };
+
         if big {
-            client.call(tl::functions::upload::SaveBigFilePart {
+            client.call_key(key, tl::functions::upload::SaveBigFilePart {
                 file_id,
                 file_part,
                 file_total_parts,
                 bytes,
             }).await?;
         } else {
-            client.call(tl::functions::upload::SaveFilePart {
+            client.call_key(key, tl::functions::upload::SaveFilePart {
                 file_id,
                 file_part,
                 bytes,

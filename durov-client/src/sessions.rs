@@ -1,10 +1,8 @@
 pub mod encoding;
 pub mod peer;
-pub mod auth;
 #[cfg(feature = "session-telethon")]
 pub mod telethon;
 
-use crate::sessions::auth::Auth;
 use crate::sessions::encoding::PeerType;
 use crate::sessions::peer::Peer;
 use crate::{tl, Error};
@@ -29,11 +27,13 @@ pub trait Session {
     where
         I: Iterator<Item = Peer> + Send;
 
-    async fn list_auths(&self) -> Result<Vec<Auth>, Error>;
+    async fn get_main_dc(&self) -> Result<Option<i32>, Error>;
 
-    async fn set_auth(&self, auth: &Auth) -> Result<(), Error>;
+    async fn set_main_dc(&self, dc_id: i32) -> Result<(), Error>;
 
-    async fn del_auth(&self, dc_id: i32) -> Result<(), Error>;
+    async fn get_auth_key(&self, dc_id: i32) -> Result<Option<[u8; 256]>, Error>;
+
+    async fn set_auth_key(&self, dc_id: i32, auth_key: [u8; 256]) -> Result<(), Error>;
 
     async fn get_states(&self) -> Result<HashMap<i64, State>, Error>;
 

@@ -1,5 +1,6 @@
+use crate::datacenters::static_dc;
 use crate::sessions::encoding::{decode_peer_id, encode_peer_id, PeerType};
-use crate::sessions::{get_date, Auth, Peer, Session};
+use crate::sessions::{get_date, Peer, Session};
 use crate::{tl, Error};
 use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteRow};
@@ -78,51 +79,50 @@ impl Session for Telethon {
         Ok(())
     }
 
-    async fn list_auths(&self) -> Result<Vec<Auth>, Error> {
-        let row_list = sqlx::query("SELECT * FROM sessions")
-            .fetch_all(&self.pool).await?;
+    async fn get_main_dc(&self) -> Result<Option<i32>, Error> {
+        let row = sqlx::query("SELECT * FROM sessions")
+            .fetch_optional(&self.pool).await?;
 
-        let auth_list = row_list.into_iter()
-            .map(|row| Auth {
-                dc_id: row.get("dc_id"),
-                dc_host: row.get("server_address"),
-                dc_port: row.get("port"),
-                auth_key: row.get::<&[u8], _>("auth_key")
-                    .try_into()
-                    .unwrap(),
-                main: true,
-            })
-            .collect();
-
-        Ok(auth_list)
+        Ok(row.map(|row| row.get("dc_id")))
     }
 
-    async fn set_auth(&self, auth: &Auth) -> Result<(), Error> {
-        if !auth.main {
-            return Ok(());
-        }
-
-        let mut transaction = self.pool.begin().await?;
-
-        sqlx::query("DELETE FROM sessions")
-            .execute(&mut *transaction).await?;
-
-        sqlx::query("INSERT INTO sessions VALUES (?, ?, ?, ?, NULL)")
-            .bind(auth.dc_id)
-            .bind(&auth.dc_host)
-            .bind(auth.dc_port)
-            .bind(&auth.auth_key[..])
-            .execute(&mut *transaction).await?;
-
-        transaction.commit().await?;
+    async fn set_main_dc(&self, dc_id: i32) -> Result<(), Error> {
+        sqlx::query("DELETE FROM sessions WHERE dc_id != ?")
+            .bind(dc_id)
+            .execute(&self.pool).await?;
 
         Ok(())
     }
 
-    async fn del_auth(&self, dc_id: i32) -> Result<(), Error> {
-        sqlx::query("DELETE FROM sessions WHERE dc_id = ?")
+    async fn get_auth_key(&self, dc_id: i32) -> Result<Option<[u8; 256]>, Error> {
+        let row = sqlx::query("SELECT * FROM sessions WHERE dc_id = ?")
             .bind(dc_id)
-            .execute(&self.pool).await?;
+            .fetch_optional(&self.pool).await?;
+
+        Ok(row.map(|row| {
+            row.get::<&[u8], _>("auth_key")
+                .try_into()
+                .unwrap()
+        }))
+    }
+
+    async fn set_auth_key(&self, dc_id: i32, auth_key: [u8; 256]) -> Result<(), Error> {
+        let mut transaction = self.pool.begin().await?;
+
+        let result = sqlx::query("DELETE FROM sessions WHERE dc_id = ?")
+            .bind(dc_id)
+            .execute(&mut *transaction).await?;
+
+        if result.rows_affected() > 0 {
+            sqlx::query("INSERT INTO sessions VALUES (?, ?, ?, ?, NULL)")
+                .bind(dc_id)
+                .bind(static_dc(dc_id).host)
+                .bind(static_dc(dc_id).port)
+                .bind(&auth_key[..])
+                .execute(&mut *transaction).await?;
+        }
+
+        transaction.commit().await?;
 
         Ok(())
     }

@@ -9,10 +9,12 @@ use crate::client::Client;
 use crate::sessions::Session;
 use crate::{tl, Error};
 use durov_mtproto::transports::Transport;
+use std::iter;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-const WORKER_COUNT: usize = 1;
+const CONNECTION_COUNT: usize = 16;
+const WORKER_PER_CONNECTION: usize = 2;
 
 impl<T: Transport, S: Session> Client<T, S>
 where
@@ -31,8 +33,15 @@ where
         let (stream, back) = data.into_stream().await?;
         let stream = Arc::new(Mutex::new(stream));
 
-        let iter = (0..WORKER_COUNT)
-            .map(|_| run_worker(self.clone(), Arc::clone(&state), location.clone(), dc_id, Arc::clone(&stream)));
+        let iter = iter::zip(0..CONNECTION_COUNT, 0..WORKER_PER_CONNECTION)
+            .map(|(conn_id, _)| run_worker(
+                self.clone(),
+                Arc::clone(&state),
+                location.clone(),
+                dc_id,
+                conn_id as i32,
+                Arc::clone(&stream),
+            ));
         join_futures(iter).await?;
 
         let stream = Arc::into_inner(stream)

@@ -1,4 +1,5 @@
 use crate::client::Client;
+use crate::manager::ClientKey;
 use crate::sessions::Session;
 use crate::{tl, Error};
 use durov_mtproto::transports::Transport;
@@ -27,6 +28,7 @@ pub async fn run_worker<T, S, R>(
     state: Arc<Mutex<State>>,
     location: tl::enums::InputFileLocation,
     dc_id: i32,
+    conn_id: i32,
     stream: Arc<Mutex<R>>,
 ) -> Result<(), Error>
 where
@@ -48,7 +50,9 @@ where
             offset
         };
 
-        let file = client.call_dc(dc_id, tl::functions::upload::GetFile {
+        let key = ClientKey::Download { dc_id, conn_id };
+
+        let file = client.call_key(key, tl::functions::upload::GetFile {
             precise: false,
             cdn_supported: false,
             location: location.clone(),

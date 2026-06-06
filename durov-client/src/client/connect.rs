@@ -18,7 +18,7 @@ where
 
         let config = Arc::new(config);
         let session = Arc::new(session);
-        let manager = Manager::create(Arc::clone(&config), Arc::clone(&session)).await?;
+        let manager = Manager::new(Arc::clone(&config), Arc::clone(&session));
         let clients = Arc::new(manager);
         let updater = Arc::new(Mutex::new(Updater::new()));
 

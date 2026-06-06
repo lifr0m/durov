@@ -10,7 +10,7 @@ use crate::client::updates::pts::{extract_pts, Sequence};
 use crate::client::updates::queue::Queue;
 use crate::client::updates::updater::Updater;
 use crate::client::Client;
-use crate::manager::DatacenterKey;
+use crate::manager::ClientKey;
 use crate::sessions::encoding::PeerType;
 use crate::sessions::peer::Peer;
 use crate::sessions::Session;
@@ -38,7 +38,7 @@ where
     }
 
     pub async fn next_unauthorized_updates(&self) -> Result<Vec<tl::enums::Update>, Error> {
-        let updates = self.clients.get(DatacenterKey::Main).await?
+        let updates = self.clients.get(ClientKey::Main).await?
             .next().await?;
         Ok(match convert_received_updates(updates) {
             Some(updates) => updates.updates,
@@ -141,7 +141,7 @@ where
             .map(|since| GAP_LEEWAY - since.elapsed())
             .unwrap_or(LONG_PERIOD);
 
-        match time::timeout(timeout, self.clients.get(DatacenterKey::Main).await?.next()).await {
+        match time::timeout(timeout, self.clients.get(ClientKey::Main).await?.next()).await {
             Ok(updates) => {
                 self.process_received_updates(&mut updater, updates?);
             }
